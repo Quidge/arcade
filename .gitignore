@@ -5,3 +5,6 @@
 .env
 
 /bin/
+
+scratch/**
+!scratch/.gitkeep
