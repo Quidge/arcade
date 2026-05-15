@@ -5,6 +5,10 @@ _default:
 web:
     go run .
 
+# start the dev server on this worktree's deterministic port
+web-wt:
+    ADDR=:$(wt step eval '{{{{ branch | hash_port }}') go run .
+
 # compile a binary into bin/
 build:
     go build -o bin/scribblepass .

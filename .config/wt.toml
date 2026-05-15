@@ -1,0 +1,23 @@
+# Copy gitignored files (filtered by .worktreeinclude) into new worktrees
+# so they can run immediately without re-creating .env etc.
+[post-start]
+copy-ignored = "wt step copy-ignored"
+
+# Run fmt, then tidy, serially before each wt-managed commit.
+# Pipeline form: separate [[pre-commit]] blocks run in order.
+[[pre-commit]]
+fmt = "just fmt"
+
+[[pre-commit]]
+tidy = "just tidy"
+
+# Read-only gate before merging. lint and test are independent, so
+# run them concurrently in a single block.
+[[pre-merge]]
+lint = "just lint"
+test = "just test"
+
+# Per-worktree dev server URL in `wt list`. main.go reads $ADDR,
+# and `just web-wt` uses the same hash_port to pick the matching port.
+[list]
+url = "http://localhost:{{ branch | hash_port }}"
