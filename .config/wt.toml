@@ -1,7 +1,12 @@
 # Copy gitignored files (filtered by .worktreeinclude) into new worktrees
 # so they can run immediately without re-creating .env etc.
-[post-start]
+[[post-start]]
 copy-ignored = "wt step copy-ignored"
+
+# Authorize the .envrc so direnv loads it on first cd-in. Runs after
+# copy-ignored so .env is in place before direnv re-evaluates.
+[[post-start]]
+direnv-allow = "direnv allow"
 
 # Run fmt, then tidy, serially before each wt-managed commit.
 # Pipeline form: separate [[pre-commit]] blocks run in order.
