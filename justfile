@@ -1,13 +1,9 @@
 _default:
     @just --list
 
-# start the dev server
-web:
-    go run .
-
-# start the dev server on this worktree's deterministic port
-web-wt:
-    ADDR=:$(wt step eval '{{{{ branch | hash_port }}') go run .
+# build with SHA injection, then serve on this worktree's deterministic port
+web: build
+    ADDR=:$(wt step eval '{{{{ branch | hash_port }}') ./bin/scribblepass
 
 # compile a binary into bin/
 build:
