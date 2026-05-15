@@ -11,7 +11,7 @@ web-wt:
 
 # compile a binary into bin/
 build:
-    go build -o bin/scribblepass .
+    go build -ldflags "-X main.gitSHA=$(git rev-parse --short HEAD)" -o bin/scribblepass .
 
 # format all Go files in place
 fmt:

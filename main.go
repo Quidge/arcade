@@ -22,6 +22,10 @@ const (
 //go:embed templates
 var templatesFS embed.FS
 
+// gitSHA is the commit the binary was built from. Injected at build time via
+// -ldflags "-X main.gitSHA=$(git rev-parse --short HEAD)". Empty for `go run`.
+var gitSHA = "unknown"
+
 var homeTmpl = template.Must(template.ParseFS(templatesFS,
 	"templates/base.tmpl",
 	"templates/pages/home.tmpl",
@@ -32,6 +36,7 @@ type homeData struct {
 	Heading string
 	Message string
 	Year    int
+	GitSHA  string
 }
 
 func render(w http.ResponseWriter, tmpl *template.Template, name string, data any) {
@@ -53,6 +58,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		Heading: "hello, world",
 		Message: "A tiny Go server serving a single page from the standard library.",
 		Year:    time.Now().Year(),
+		GitSHA:  gitSHA,
 	})
 }
 
