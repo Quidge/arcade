@@ -1,0 +1,98 @@
+{{/* Base layout: every page inherits this and overrides "content". */}}
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{{.Title}} · scribblepass</title>
+	<style>
+		:root {
+			--bg: #fafaf9;
+			--surface: #ffffff;
+			--fg: #1c1917;
+			--muted: #78716c;
+			--accent: #0891b2;
+			--border: #e7e5e4;
+		}
+		*, *::before, *::after { box-sizing: border-box; }
+		html, body { margin: 0; padding: 0; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+			color: var(--fg);
+			background: var(--bg);
+			line-height: 1.6;
+			-webkit-font-smoothing: antialiased;
+		}
+		a { color: var(--accent); }
+		.container {
+			max-width: 640px;
+			margin: 0 auto;
+			padding: 0 1.25rem;
+		}
+		.site-header {
+			background: var(--surface);
+			border-bottom: 1px solid var(--border);
+			padding: 1rem 0;
+		}
+		.site-header .container {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		.site-name {
+			font-weight: 600;
+			font-size: 1.05rem;
+			color: var(--fg);
+			text-decoration: none;
+			letter-spacing: -0.01em;
+		}
+		.site-nav a {
+			color: var(--muted);
+			text-decoration: none;
+			margin-left: 1.25rem;
+			font-size: 0.95rem;
+		}
+		.site-nav a:hover { color: var(--accent); }
+		main { padding: 3rem 0 4rem; }
+		h1 {
+			font-size: 2.25rem;
+			margin: 0 0 0.5rem;
+			letter-spacing: -0.025em;
+			line-height: 1.2;
+		}
+		.lede {
+			color: var(--muted);
+			font-size: 1.1rem;
+			margin: 0 0 2rem;
+		}
+		.site-footer {
+			border-top: 1px solid var(--border);
+			padding: 1.5rem 0;
+			color: var(--muted);
+			font-size: 0.875rem;
+		}
+	</style>
+</head>
+<body>
+	<header class="site-header">
+		<div class="container">
+			<a href="/" class="site-name">scribblepass</a>
+			<nav class="site-nav">
+				<a href="/">Home</a>
+			</nav>
+		</div>
+	</header>
+
+	<main>
+		<div class="container">
+			{{block "content" .}}{{end}}
+		</div>
+	</main>
+
+	<footer class="site-footer">
+		<div class="container">
+			&copy; {{.Year}} scribblepass
+		</div>
+	</footer>
+</body>
+</html>

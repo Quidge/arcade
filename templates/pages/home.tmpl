@@ -1,0 +1,11 @@
+{{define "content"}}
+<h1>{{.Heading}}</h1>
+<p class="lede">{{.Message}}</p>
+
+<p>
+	This page is rendered server-side by a small Go program using only
+	the standard library — <code>net/http</code> for routing,
+	<code>html/template</code> for rendering, and <code>embed</code> to
+	bake the templates into the binary.
+</p>
+{{end}}
