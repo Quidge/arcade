@@ -56,12 +56,22 @@ jobs:
           SHA: ${{ steps.resolve.outputs.sha }}
         run: |
           set -euo pipefail
-          if docker buildx imagetools inspect "${IMAGE}:sha-${SHA}" > /dev/null 2>&1; then
+          exit_code=0
+          output=$(docker buildx imagetools inspect "${IMAGE}:sha-${SHA}" 2>&1) || exit_code=$?
+
+          if [ $exit_code -eq 0 ]; then
             echo "found=true" >> "$GITHUB_OUTPUT"
-            echo "Image ${IMAGE}:sha-${SHA} already exists; will retag."
-          else
+            echo "Image ${IMAGE}:sha-${SHA} exists in GHCR; will retag :release."
+          elif echo "$output" | grep --quiet --extended-regexp --ignore-case 'not found|manifest unknown|no such manifest|404'; then
             echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "Image ${IMAGE}:sha-${SHA} not found; will build."
+            echo "Image ${IMAGE}:sha-${SHA} not found in GHCR (no prior build of this SHA); will build."
+            echo "::notice::release.yml fell through to the build path because :sha-${SHA} was not in GHCR. If you expected a pre-built image, check that build.yml ran against the same SHA you pushed to the release branch."
+          else
+            echo "::error::Unexpected error from \`docker buildx imagetools inspect ${IMAGE}:sha-${SHA}\` (exit ${exit_code}). This is not a missing-manifest error, so refusing to silently fall back to the build path."
+            echo "--- imagetools output ---"
+            echo "$output"
+            echo "--- end ---"
+            exit 1
           fi
 
       # ─── build-if-missing path ─────────────────────────────────────────────
