@@ -17,4 +17,8 @@ Canonical defaults (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 ### Domain docs
 
-Single-context — `CONTEXT.md` and `docs/adr/` at the repo root (neither exists yet; created lazily by `/grill-with-docs`). See `docs/agents/domain.md`.
+Single-context — `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Dependency policy
+
+stdlib-first posture; agents must ask before introducing new Go dependencies. See `docs/agents/dependencies.md`.
