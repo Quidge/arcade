@@ -24,6 +24,9 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://scribble.homeworld.jonathandemirgian.com
     steps:
       - name: Resolve target SHA
         id: resolve
@@ -179,3 +182,23 @@ jobs:
             echo "::error::digest mismatch after retag"
             exit 1
           fi
+
+      # ─── trigger Dokploy deploy ────────────────────────────────────────────
+
+      - name: Trigger Dokploy deploy
+        env:
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_APP_ID: ${{ vars.DOKPLOY_APP_ID }}
+        run: |
+          set -euo pipefail
+          response=$(curl \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --header "x-api-key: ${DOKPLOY_API_KEY}" \
+            --data "{\"applicationId\":\"${DOKPLOY_APP_ID}\"}" \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            https://root.homeworld.jonathandemirgian.com/api/application.deploy)
+          echo "Dokploy response: ${response}"
+          echo "Deploy triggered for applicationId=${DOKPLOY_APP_ID}"
