@@ -1,6 +1,6 @@
 # `date -u` instead of `--utc` because BSD/macOS date(1) lacks the long form.
 GIT_SHA := `git rev-parse HEAD`
-BUILD_TIME := `date -u +%FT%TZ`
+BUILT_AT := `date -u +%FT%TZ`
 
 _default:
     @just --list
@@ -11,13 +11,13 @@ web: build
 
 # compile a binary into bin/
 build:
-    go build -ldflags "-X main.gitSHA={{GIT_SHA}} -X main.buildTime={{BUILD_TIME}}" -o bin/scribble .
+    go build -ldflags "-X main.gitSHA={{GIT_SHA}} -X main.builtAt={{BUILT_AT}}" -o bin/scribble .
 
 # build the docker image for local arch (fast iteration)
 docker-build:
     docker build \
         --build-arg GIT_SHA={{GIT_SHA}} \
-        --build-arg BUILD_TIME={{BUILD_TIME}} \
+        --build-arg BUILT_AT={{BUILT_AT}} \
         --tag scribble:dev \
         .
 
@@ -30,7 +30,7 @@ docker-build-push-ci:
     docker buildx build \
         --platform linux/amd64,linux/arm64 \
         --build-arg GIT_SHA={{GIT_SHA}} \
-        --build-arg BUILD_TIME={{BUILD_TIME}} \
+        --build-arg BUILT_AT={{BUILT_AT}} \
         --push \
         --tag ghcr.io/quidge/scribble:sha-{{GIT_SHA}} \
         .

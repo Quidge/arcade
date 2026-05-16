@@ -24,11 +24,11 @@ const (
 //go:embed templates
 var templatesFS embed.FS
 
-// gitSHA and buildTime are injected at build time via
-// -ldflags "-X main.gitSHA=... -X main.buildTime=...".
+// gitSHA and builtAt are injected at build time via
+// -ldflags "-X main.gitSHA=... -X main.builtAt=...".
 var (
-	gitSHA    = "dev"
-	buildTime = "unknown"
+	gitSHA  = "dev"
+	builtAt = "unknown"
 )
 
 var startedAt = time.Now()
@@ -48,7 +48,7 @@ type homeData struct {
 
 type healthResponse struct {
 	GitSHA    string `json:"git_sha"`
-	BuildTime string `json:"build_time"`
+	BuiltAt   string `json:"built_at"`
 	StartedAt string `json:"started_at"`
 	Uptime    string `json:"uptime"`
 }
@@ -79,7 +79,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	resp := healthResponse{
 		GitSHA:    gitSHA,
-		BuildTime: buildTime,
+		BuiltAt:   builtAt,
 		StartedAt: startedAt.UTC().Format(time.RFC3339),
 		Uptime:    time.Since(startedAt).Round(time.Second).String(),
 	}

@@ -4,7 +4,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26.3 AS builder
 WORKDIR /src
 
 ARG GIT_SHA
-ARG BUILD_TIME
+ARG BUILT_AT
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build \
         -trimpath \
-        -ldflags="-s -w -X main.gitSHA=${GIT_SHA} -X main.buildTime=${BUILD_TIME}" \
+        -ldflags="-s -w -X main.gitSHA=${GIT_SHA} -X main.builtAt=${BUILT_AT}" \
         -o /out/scribble \
         .
 
