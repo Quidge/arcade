@@ -1,4 +1,4 @@
-name: build
+name: build-and-push-image-to-registry
 
 on:
   workflow_dispatch:
@@ -12,17 +12,17 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/quidge/scribble
+  BUILT_IMAGE_NAME: ghcr.io/quidge/scribble
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -35,8 +35,8 @@ jobs:
           echo "git_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           echo "build_time=$(date --utc --iso-8601=seconds)" >> "$GITHUB_OUTPUT"
 
-      - name: Build amd64 image (load for smoke test)
-        uses: docker/build-push-action@v6
+      - name: Build amd64 image for smoke test
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
@@ -48,7 +48,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test /healthz
+      # Our only test at this time is:
+      # - server starts at all
+      # - server /healthz returns 200
+      # - /healthz returns the correct git SHA
+      - name: Smoke test amd64 image
         env:
           GIT_SHA: ${{ steps.meta.outputs.git_sha }}
         run: |
@@ -81,13 +85,13 @@ jobs:
             exit 1
           fi
 
-      - name: Build and push multi-arch
-        uses: docker/build-push-action@v6
+      - name: Build and push multi-arch image to registry
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.IMAGE }}:sha-${{ steps.meta.outputs.git_sha }}
+          tags: ${{ env.BUILT_IMAGE_NAME }}:sha-${{ steps.meta.outputs.git_sha }}
           build-args: |
             GIT_SHA=${{ steps.meta.outputs.git_sha }}
             BUILD_TIME=${{ steps.meta.outputs.build_time }}
