@@ -93,7 +93,7 @@ jobs:
       - name: Compute build metadata
         if: steps.exists.outputs.found == 'false'
         id: meta
-        run: echo "build_time=$(date --utc --iso-8601=seconds)" >> "$GITHUB_OUTPUT"
+        run: echo "built_at=$(date -u +%FT%TZ)" >> "$GITHUB_OUTPUT"
 
       - name: Build amd64 image (load for smoke test)
         if: steps.exists.outputs.found == 'false'
@@ -105,7 +105,7 @@ jobs:
           tags: scribble:smoke
           build-args: |
             GIT_SHA=${{ steps.resolve.outputs.sha }}
-            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -148,7 +148,7 @@ jobs:
           tags: ${{ env.BUILT_IMAGE_NAME }}:sha-${{ steps.resolve.outputs.sha }}
           build-args: |
             GIT_SHA=${{ steps.resolve.outputs.sha }}
-            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

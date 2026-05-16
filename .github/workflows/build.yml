@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "git_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          echo "build_time=$(date --utc --iso-8601=seconds)" >> "$GITHUB_OUTPUT"
+          echo "built_at=$(date -u +%FT%TZ)" >> "$GITHUB_OUTPUT"
 
       - name: Build amd64 image for smoke test
         uses: docker/build-push-action@v7
@@ -44,7 +44,7 @@ jobs:
           tags: scribble:smoke
           build-args: |
             GIT_SHA=${{ steps.meta.outputs.git_sha }}
-            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -89,6 +89,6 @@ jobs:
           tags: ${{ env.BUILT_IMAGE_NAME }}:sha-${{ steps.meta.outputs.git_sha }}
           build-args: |
             GIT_SHA=${{ steps.meta.outputs.git_sha }}
-            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
