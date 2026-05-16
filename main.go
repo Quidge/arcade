@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"html/template"
 	"log"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 const (
 	defaultAddr       = ":8080"
+	defaultDataDir    = "/data"
 	readHeaderTimeout = 5 * time.Second
 	readTimeout       = 10 * time.Second
 	writeTimeout      = 10 * time.Second
@@ -22,9 +24,14 @@ const (
 //go:embed templates
 var templatesFS embed.FS
 
-// gitSHA is the commit the binary was built from. Injected at build time via
-// -ldflags "-X main.gitSHA=$(git rev-parse --short HEAD)". Empty for `go run`.
-var gitSHA = "unknown"
+// gitSHA and buildTime are injected at build time via
+// -ldflags "-X main.gitSHA=... -X main.buildTime=...".
+var (
+	gitSHA    = "dev"
+	buildTime = "unknown"
+)
+
+var startedAt = time.Now()
 
 var homeTmpl = template.Must(template.ParseFS(templatesFS,
 	"templates/base.tmpl",
@@ -37,6 +44,14 @@ type homeData struct {
 	Message string
 	Year    int
 	GitSHA  string
+}
+
+type healthResponse struct {
+	Status    string `json:"status"`
+	SHA       string `json:"sha"`
+	BuildTime string `json:"build_time"`
+	StartedAt string `json:"started_at"`
+	Uptime    string `json:"uptime"`
 }
 
 func render(w http.ResponseWriter, tmpl *template.Template, name string, data any) {
@@ -62,14 +77,37 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	resp := healthResponse{
+		Status:    "ok",
+		SHA:       gitSHA,
+		BuildTime: buildTime,
+		StartedAt: startedAt.UTC().Format(time.RFC3339),
+		Uptime:    time.Since(startedAt).Round(time.Second).String(),
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("encode healthz: %v", err)
+	}
+}
+
 func main() {
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = defaultAddr
 	}
 
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		dataDir = defaultDataDir
+	}
+	// dataDir is currently unused; wired in so future SQLite code finds the
+	// established path convention without re-litigating it.
+	log.Printf("data dir %q (currently unused)", dataDir)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", homeHandler)
+	mux.HandleFunc("GET /healthz", healthHandler)
 
 	srv := &http.Server{
 		Addr:              addr,

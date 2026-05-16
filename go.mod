@@ -1,3 +1,3 @@
-module github.com/trydemirgian/scribblepass
+module github.com/quidge/scribblepass
 
 go 1.26
