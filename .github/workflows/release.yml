@@ -1,0 +1,166 @@
+name: release
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-char git SHA to release (defaults to release branch HEAD)"
+        required: false
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/quidge/scribble
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve target SHA
+        id: resolve
+        run: |
+          set -euo pipefail
+          input_sha="${{ inputs.sha }}"
+          if [ -n "$input_sha" ]; then
+            if ! echo "$input_sha" | grep --extended-regexp --quiet '^[0-9a-f]{40}$'; then
+              echo "::error::sha input must be a full 40-char lowercase hex SHA, got: $input_sha"
+              exit 1
+            fi
+            sha="$input_sha"
+          else
+            sha="${{ github.sha }}"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Resolved target SHA: $sha"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image already exists
+        id: exists
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if docker buildx imagetools inspect "${IMAGE}:sha-${SHA}" > /dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Image ${IMAGE}:sha-${SHA} already exists; will retag."
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "Image ${IMAGE}:sha-${SHA} not found; will build."
+          fi
+
+      # ─── build-if-missing path ─────────────────────────────────────────────
+
+      - name: Checkout target SHA
+        if: steps.exists.outputs.found == 'false'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+
+      - name: Compute build metadata
+        if: steps.exists.outputs.found == 'false'
+        id: meta
+        run: echo "build_time=$(date --utc --iso-8601=seconds)" >> "$GITHUB_OUTPUT"
+
+      - name: Build amd64 image (load for smoke test)
+        if: steps.exists.outputs.found == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: scribble:smoke
+          build-args: |
+            GIT_SHA=${{ steps.resolve.outputs.sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test /healthz
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GIT_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          docker run --detach --publish 8080:8080 --name scribble-smoke scribble:smoke
+          trap 'docker logs scribble-smoke || true; docker rm --force scribble-smoke || true' EXIT
+
+          ok=false
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://localhost:8080/healthz > /tmp/healthz.json; then
+              ok=true
+              break
+            fi
+            sleep 1
+          done
+          if ! $ok; then
+            echo "::error::/healthz never returned 200 within 30s"
+            exit 1
+          fi
+
+          cat /tmp/healthz.json
+          got=$(jq --raw-output .sha /tmp/healthz.json)
+          if [ "$got" != "$GIT_SHA" ]; then
+            echo "::error::sha mismatch: container reported '$got', expected '$GIT_SHA'"
+            exit 1
+          fi
+          status=$(jq --raw-output .status /tmp/healthz.json)
+          if [ "$status" != "ok" ]; then
+            echo "::error::status not ok: '$status'"
+            exit 1
+          fi
+
+      - name: Build and push multi-arch
+        if: steps.exists.outputs.found == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:sha-${{ steps.resolve.outputs.sha }}
+          build-args: |
+            GIT_SHA=${{ steps.resolve.outputs.sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ─── retag (always runs) ───────────────────────────────────────────────
+
+      - name: Retag :sha-<SHA> as :release
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE}:release" \
+            "${IMAGE}:sha-${SHA}"
+          echo "Retagged ${IMAGE}:sha-${SHA} → ${IMAGE}:release"
+
+      - name: Verify :release points at :sha-<SHA>
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          release_digest=$(docker buildx imagetools inspect "${IMAGE}:release" --format '{{.Manifest.Digest}}')
+          sha_digest=$(docker buildx imagetools inspect "${IMAGE}:sha-${SHA}" --format '{{.Manifest.Digest}}')
+          echo "release digest:    $release_digest"
+          echo "sha-${SHA} digest: $sha_digest"
+          if [ "$release_digest" != "$sha_digest" ]; then
+            echo "::error::digest mismatch after retag"
+            exit 1
+          fi

@@ -1,0 +1,40 @@
+name: check
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: check-${{ github.head_ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install golangci-lint
+        run: |
+          set -euo pipefail
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - uses: extractions/setup-just@v2
+
+      - name: just check
+        run: just check
+
+      - name: Verify working tree is clean
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Working tree dirty after \`just check\`. Run \`just check\` locally and commit the changes."
+            exit 1
+          fi
