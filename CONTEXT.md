@@ -13,7 +13,7 @@ A participant in a GameSession, identified by a display name they choose when jo
 _Avoid_: user, guest
 
 **Host**:
-The Player who created the GameSession by clicking "New game." Exactly one per GameSession. Has unique abilities: setting the Round timer in the lobby, starting the GameSession, kicking other Players, and force-advancing the current Round.
+The Player currently holding host powers in a GameSession. Exactly one per GameSession at any time. Initially the Player who created the GameSession by clicking "New game," but Host can change hands: the current Host may voluntarily transfer Host to any other Player (no recipient consent needed), and on Host disconnect lasting longer than 15 seconds, Host auto-migrates to the next Player in join order. A Player rejoining after losing Host does *not* automatically reclaim it. Host abilities: setting the Round timer in the lobby, starting the GameSession, kicking other Players, force-advancing the current Round, driving reveal pacing for a Chain whose starter is absent, and transferring Host to another Player.
 _Avoid_: leader, moderator, admin, owner
 
 **Chain**:
