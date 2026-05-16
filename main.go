@@ -47,8 +47,7 @@ type homeData struct {
 }
 
 type healthResponse struct {
-	Status    string `json:"status"`
-	SHA       string `json:"sha"`
+	GitSHA    string `json:"git_sha"`
 	BuildTime string `json:"build_time"`
 	StartedAt string `json:"started_at"`
 	Uptime    string `json:"uptime"`
@@ -79,8 +78,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	resp := healthResponse{
-		Status:    "ok",
-		SHA:       gitSHA,
+		GitSHA:    gitSHA,
 		BuildTime: buildTime,
 		StartedAt: startedAt.UTC().Format(time.RFC3339),
 		Uptime:    time.Since(startedAt).Round(time.Second).String(),
