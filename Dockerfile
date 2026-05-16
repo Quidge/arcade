@@ -22,11 +22,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build \
         -trimpath \
         -ldflags="-s -w -X main.gitSHA=${GIT_SHA} -X main.buildTime=${BUILD_TIME}" \
-        -o /out/scribblepass \
+        -o /out/scribble \
         .
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
-COPY --from=builder /out/scribblepass /scribblepass
+COPY --from=builder /out/scribble /scribble
 USER nonroot:nonroot
 EXPOSE 8080
-ENTRYPOINT ["/scribblepass"]
+ENTRYPOINT ["/scribble"]

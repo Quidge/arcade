@@ -1,4 +1,4 @@
-// Command scribblepass serves a single hello-world HTML page on /.
+// Command scribble serves a single hello-world HTML page on /.
 package main
 
 import (

@@ -7,23 +7,23 @@ _default:
 
 # build with SHA + build-time injection, then serve on this worktree's deterministic port
 web: build
-    ADDR=:$(wt step eval '{{{{ branch | hash_port }}') ./bin/scribblepass
+    ADDR=:$(wt step eval '{{{{ branch | hash_port }}') ./bin/scribble
 
 # compile a binary into bin/
 build:
-    go build -ldflags "-X main.gitSHA={{GIT_SHA}} -X main.buildTime={{BUILD_TIME}}" -o bin/scribblepass .
+    go build -ldflags "-X main.gitSHA={{GIT_SHA}} -X main.buildTime={{BUILD_TIME}}" -o bin/scribble .
 
 # build the docker image for local arch (fast iteration)
 docker-build:
     docker build \
         --build-arg GIT_SHA={{GIT_SHA}} \
         --build-arg BUILD_TIME={{BUILD_TIME}} \
-        --tag scribblepass:dev \
+        --tag scribble:dev \
         .
 
 # run the locally-built image on :8080
 docker-run: docker-build
-    docker run --rm --publish 8080:8080 scribblepass:dev
+    docker run --rm --publish 8080:8080 scribble:dev
 
 # multi-arch build + push to GHCR (requires prior `docker login ghcr.io`)
 docker-build-push-ci:
