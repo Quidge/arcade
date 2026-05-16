@@ -50,6 +50,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Distinguish "image not found" (404 / manifest unknown) — the expected
+      # case when this SHA has no prior build, which means we take the build
+      # path — from other inspect failures (auth, network, GHCR 5xx). Only
+      # the first should fall through; anything else fails the workflow
+      # rather than silently rebuilding.
       - name: Check if image already exists
         id: exists
         env:
