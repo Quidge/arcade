@@ -19,7 +19,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/quidge/scribble
+  BUILT_IMAGE_NAME: ghcr.io/quidge/scribble
 
 jobs:
   release:
@@ -62,17 +62,17 @@ jobs:
         run: |
           set -euo pipefail
           exit_code=0
-          output=$(docker buildx imagetools inspect "${IMAGE}:sha-${SHA}" 2>&1) || exit_code=$?
+          output=$(docker buildx imagetools inspect "${BUILT_IMAGE_NAME}:sha-${SHA}" 2>&1) || exit_code=$?
 
           if [ $exit_code -eq 0 ]; then
             echo "found=true" >> "$GITHUB_OUTPUT"
-            echo "Image ${IMAGE}:sha-${SHA} exists in GHCR; will retag :release."
+            echo "Image ${BUILT_IMAGE_NAME}:sha-${SHA} exists in GHCR; will retag :release."
           elif echo "$output" | grep --quiet --extended-regexp --ignore-case 'not found|manifest unknown|no such manifest|404'; then
             echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "Image ${IMAGE}:sha-${SHA} not found in GHCR (no prior build of this SHA); will build."
+            echo "Image ${BUILT_IMAGE_NAME}:sha-${SHA} not found in GHCR (no prior build of this SHA); will build."
             echo "::notice::release.yml fell through to the build path because :sha-${SHA} was not in GHCR. If you expected a pre-built image, check that build.yml ran against the same SHA you pushed to the release branch."
           else
-            echo "::error::Unexpected error from \`docker buildx imagetools inspect ${IMAGE}:sha-${SHA}\` (exit ${exit_code}). This is not a missing-manifest error, so refusing to silently fall back to the build path."
+            echo "::error::Unexpected error from \`docker buildx imagetools inspect ${BUILT_IMAGE_NAME}:sha-${SHA}\` (exit ${exit_code}). This is not a missing-manifest error, so refusing to silently fall back to the build path."
             echo "--- imagetools output ---"
             echo "$output"
             echo "--- end ---"
@@ -147,7 +147,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.IMAGE }}:sha-${{ steps.resolve.outputs.sha }}
+          tags: ${{ env.BUILT_IMAGE_NAME }}:sha-${{ steps.resolve.outputs.sha }}
           build-args: |
             GIT_SHA=${{ steps.resolve.outputs.sha }}
             BUILD_TIME=${{ steps.meta.outputs.build_time }}
@@ -162,17 +162,17 @@ jobs:
         run: |
           set -euo pipefail
           docker buildx imagetools create \
-            --tag "${IMAGE}:release" \
-            "${IMAGE}:sha-${SHA}"
-          echo "Retagged ${IMAGE}:sha-${SHA} → ${IMAGE}:release"
+            --tag "${BUILT_IMAGE_NAME}:release" \
+            "${BUILT_IMAGE_NAME}:sha-${SHA}"
+          echo "Retagged ${BUILT_IMAGE_NAME}:sha-${SHA} → ${BUILT_IMAGE_NAME}:release"
 
       - name: Verify :release points at :sha-<SHA>
         env:
           SHA: ${{ steps.resolve.outputs.sha }}
         run: |
           set -euo pipefail
-          release_digest=$(docker buildx imagetools inspect "${IMAGE}:release" --format '{{.Manifest.Digest}}')
-          sha_digest=$(docker buildx imagetools inspect "${IMAGE}:sha-${SHA}" --format '{{.Manifest.Digest}}')
+          release_digest=$(docker buildx imagetools inspect "${BUILT_IMAGE_NAME}:release" --format '{{.Manifest.Digest}}')
+          sha_digest=$(docker buildx imagetools inspect "${BUILT_IMAGE_NAME}:sha-${SHA}" --format '{{.Manifest.Digest}}')
           echo "release digest:    $release_digest"
           echo "sha-${SHA} digest: $sha_digest"
           if [ "$release_digest" != "$sha_digest" ]; then
