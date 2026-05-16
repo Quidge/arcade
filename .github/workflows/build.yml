@@ -1,0 +1,95 @@
+name: build
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/quidge/scribble
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute build metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          echo "git_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date --utc --iso-8601=seconds)" >> "$GITHUB_OUTPUT"
+
+      - name: Build amd64 image (load for smoke test)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: scribble:smoke
+          build-args: |
+            GIT_SHA=${{ steps.meta.outputs.git_sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test /healthz
+        env:
+          GIT_SHA: ${{ steps.meta.outputs.git_sha }}
+        run: |
+          set -euo pipefail
+          docker run --detach --publish 8080:8080 --name scribble-smoke scribble:smoke
+          trap 'docker logs scribble-smoke || true; docker rm --force scribble-smoke || true' EXIT
+
+          ok=false
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://localhost:8080/healthz > /tmp/healthz.json; then
+              ok=true
+              break
+            fi
+            sleep 1
+          done
+          if ! $ok; then
+            echo "::error::/healthz never returned 200 within 30s"
+            exit 1
+          fi
+
+          cat /tmp/healthz.json
+          got=$(jq --raw-output .sha /tmp/healthz.json)
+          if [ "$got" != "$GIT_SHA" ]; then
+            echo "::error::sha mismatch: container reported '$got', expected '$GIT_SHA'"
+            exit 1
+          fi
+          status=$(jq --raw-output .status /tmp/healthz.json)
+          if [ "$status" != "ok" ]; then
+            echo "::error::status not ok: '$status'"
+            exit 1
+          fi
+
+      - name: Build and push multi-arch
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:sha-${{ steps.meta.outputs.git_sha }}
+          build-args: |
+            GIT_SHA=${{ steps.meta.outputs.git_sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
