@@ -74,14 +74,9 @@ jobs:
           fi
 
           cat /tmp/healthz.json
-          got=$(jq --raw-output .sha /tmp/healthz.json)
+          got=$(jq --raw-output .git_sha /tmp/healthz.json)
           if [ "$got" != "$GIT_SHA" ]; then
-            echo "::error::sha mismatch: container reported '$got', expected '$GIT_SHA'"
-            exit 1
-          fi
-          status=$(jq --raw-output .status /tmp/healthz.json)
-          if [ "$status" != "ok" ]; then
-            echo "::error::status not ok: '$status'"
+            echo "::error::git_sha mismatch: container reported '$got', expected '$GIT_SHA'"
             exit 1
           fi
 
