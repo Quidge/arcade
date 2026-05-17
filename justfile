@@ -43,13 +43,13 @@ fmt:
 lint:
     golangci-lint run ./...
 
-# run unit tests only 
+# run unit tests only
 test-unit:
     go test ./...
 
 # run integration tests only
 test-integration:
-    go test -tags=integration ./tests/integration
+    go test -tags=integration ./tests/integration/...
 
 # run all test tiers
 test-all: test-unit test-integration
