@@ -43,17 +43,20 @@ fmt:
 lint:
     golangci-lint run ./...
 
-# run unit tests only (integration tests gated by -tags=integration)
-test:
+# run unit tests only 
+test-unit:
     go test ./...
 
-# run integration tests in tests/integration/ alongside unit tests
+# run integration tests only
 test-integration:
-    go test -tags=integration ./...
+    go test -tags=integration ./tests/integration
+
+# run all test tiers
+test-all: test-unit test-integration
 
 # sync go.mod/go.sum to actual imports
 tidy:
     go mod tidy
 
-# run fmt, lint, both test tiers, and tidy
-check: fmt lint test test-integration tidy
+# run fmt, lint, all test tiers, and tidy
+check: fmt lint test-all tidy
