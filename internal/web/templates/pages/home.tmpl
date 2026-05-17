@@ -1,0 +1,13 @@
+{{define "content"}}
+<h1>Start a game</h1>
+<p class="lede">A Telestrations-style party game for friends at a dinner table.</p>
+
+<form action="/g" method="POST">
+	<button type="submit" class="btn">New game</button>
+</form>
+
+<p style="margin-top: 2rem; color: var(--muted); font-size: 0.95rem;">
+	Click "New game" and you'll get a short code (like <code>A4B-K9P</code>) to share with your group.
+	Each person opens the link, picks a display name, and joins.
+</p>
+{{end}}

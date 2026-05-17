@@ -1,0 +1,269 @@
+{{define "content"}}
+<style>
+	.lobby-code {
+		font-size: 1.05rem;
+		color: var(--muted);
+		margin: 0 0 1.5rem;
+	}
+	.lobby-code code {
+		font-size: 1.8rem;
+		font-weight: 600;
+		color: var(--fg);
+		letter-spacing: 0.05em;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		padding: 0.25rem 0.6rem;
+		border-radius: 0.4rem;
+		display: inline-block;
+		margin-right: 0.5rem;
+	}
+	.lobby-panel {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.6rem;
+		padding: 1.5rem;
+		margin-bottom: 1.25rem;
+	}
+	.lobby-panel h2 {
+		margin: 0 0 0.75rem;
+		font-size: 1.1rem;
+		font-weight: 600;
+	}
+	.lobby-error {
+		margin-top: 0.75rem;
+		padding: 0.6rem 0.75rem;
+		background: var(--danger-bg);
+		color: var(--danger-fg);
+		border-radius: 0.4rem;
+		font-size: 0.95rem;
+	}
+	.roster-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+	}
+	.roster-list li {
+		padding: 0.55rem 0;
+		border-bottom: 1px solid var(--border);
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.roster-list li:last-child { border-bottom: none; }
+	.roster-list .self { color: var(--accent-strong); font-weight: 500; }
+	.host-badge {
+		display: inline-block;
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		background: var(--badge-bg);
+		color: var(--badge-fg);
+		padding: 0.1rem 0.5rem;
+		border-radius: 0.25rem;
+	}
+	.roster-empty {
+		color: var(--muted);
+		font-style: italic;
+	}
+	.share-row {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+	.share-row .input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+	.hidden { display: none !important; }
+	.status-line {
+		font-size: 0.9rem;
+		color: var(--muted);
+		margin-top: 0.5rem;
+	}
+	.status-line.connected { color: var(--accent-strong); }
+</style>
+
+<h1>Lobby</h1>
+<p class="lobby-code">
+	Code: <code>{{.DisplayCode}}</code>
+</p>
+
+<section id="name-panel" class="lobby-panel">
+	<h2>Pick a display name</h2>
+	<form id="name-form" class="field-row">
+		<label class="sr-only" for="name-input">Display name</label>
+		<input class="input" id="name-input" name="name" required autocomplete="off"
+			maxlength="32" placeholder="e.g. Alice">
+		<button class="btn" type="submit" id="name-submit">Join</button>
+	</form>
+	<div id="name-error" class="lobby-error hidden" role="alert"></div>
+</section>
+
+<section id="connected-panel" class="lobby-panel hidden">
+	<h2>Players</h2>
+	<ul id="roster" class="roster-list"></ul>
+	<p id="status" class="status-line connected">Connected.</p>
+</section>
+
+<section id="share-panel" class="lobby-panel hidden">
+	<h2>Share this lobby</h2>
+	<div class="share-row">
+		<input id="share-link" class="input" type="text" readonly>
+		<button id="copy-link" class="btn" type="button">Copy link</button>
+	</div>
+	<p class="status-line"><span id="copy-status"></span>&nbsp;</p>
+</section>
+
+<script>
+(function () {
+	const code = "{{.Code}}";
+
+	const namePanel = document.getElementById("name-panel");
+	const nameForm = document.getElementById("name-form");
+	const nameInput = document.getElementById("name-input");
+	const nameSubmit = document.getElementById("name-submit");
+	const nameError = document.getElementById("name-error");
+
+	const connectedPanel = document.getElementById("connected-panel");
+	const roster = document.getElementById("roster");
+	const status = document.getElementById("status");
+
+	const sharePanel = document.getElementById("share-panel");
+	const shareLink = document.getElementById("share-link");
+	const copyBtn = document.getElementById("copy-link");
+	const copyStatus = document.getElementById("copy-status");
+
+	let myName = null;
+	let ws = null;
+
+	function showNameError(msg) {
+		nameError.textContent = msg;
+		nameError.classList.remove("hidden");
+	}
+	function hideNameError() {
+		nameError.classList.add("hidden");
+		nameError.textContent = "";
+	}
+
+	function renderRoster(players) {
+		roster.innerHTML = "";
+		if (!players || players.length === 0) {
+			const li = document.createElement("li");
+			li.className = "roster-empty";
+			li.textContent = "(no one here yet)";
+			roster.appendChild(li);
+			return;
+		}
+		for (const p of players) {
+			const li = document.createElement("li");
+			const nameSpan = document.createElement("span");
+			nameSpan.textContent = p.name;
+			if (p.name === myName) nameSpan.classList.add("self");
+			li.appendChild(nameSpan);
+			if (p.host) {
+				const badge = document.createElement("span");
+				badge.className = "host-badge";
+				badge.textContent = "Host";
+				li.appendChild(badge);
+			}
+			roster.appendChild(li);
+		}
+	}
+
+	function onOpen() {
+		namePanel.classList.add("hidden");
+		connectedPanel.classList.remove("hidden");
+		sharePanel.classList.remove("hidden");
+		shareLink.value = window.location.origin + window.location.pathname;
+	}
+
+	function onMessage(ev) {
+		let msg;
+		try { msg = JSON.parse(ev.data); }
+		catch (e) { console.warn("bad ws message", ev.data); return; }
+		if (msg.type === "roster") {
+			renderRoster(msg.players);
+		}
+	}
+
+	function resetToNameEntry() {
+		connectedPanel.classList.add("hidden");
+		sharePanel.classList.add("hidden");
+		namePanel.classList.remove("hidden");
+		nameSubmit.disabled = false;
+		renderRoster([]);
+	}
+
+	function onClose(ev) {
+		ws = null;
+		const reason = ev.reason || "";
+
+		// Server-driven rejections (policy violations from the WS
+		// handler) arrive after the upgrade-handshake "open" event,
+		// so we may already be showing the connected UI. Always
+		// reset to name entry for these.
+		if (reason.indexOf("duplicate name") === 0) {
+			resetToNameEntry();
+			showNameError("That display name is already taken in this game session. Please pick another.");
+			return;
+		}
+		if (reason.indexOf("session full") === 0) {
+			resetToNameEntry();
+			showNameError("This game session is full (8 players maximum).");
+			return;
+		}
+
+		// Real disconnect after a successful join.
+		if (!connectedPanel.classList.contains("hidden")) {
+			status.classList.remove("connected");
+			status.textContent = "Disconnected" + (reason ? ": " + reason : ".");
+			return;
+		}
+
+		nameSubmit.disabled = false;
+		if (ev.code === 1006) {
+			showNameError("Connection lost before joining. Please try again.");
+		} else {
+			showNameError(reason || "could not connect");
+		}
+	}
+
+	nameForm.addEventListener("submit", function (e) {
+		e.preventDefault();
+		hideNameError();
+		const name = nameInput.value.trim();
+		if (!name) return;
+		myName = name;
+		nameSubmit.disabled = true;
+
+		const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+		const url = proto + "//" + window.location.host + "/g/" + code + "/ws?name=" + encodeURIComponent(name);
+		try {
+			ws = new WebSocket(url);
+		} catch (err) {
+			nameSubmit.disabled = false;
+			showNameError("Could not open WebSocket: " + err.message);
+			return;
+		}
+		ws.addEventListener("open", onOpen);
+		ws.addEventListener("message", onMessage);
+		ws.addEventListener("close", onClose);
+		ws.addEventListener("error", function () {
+			// onClose will follow; let it handle the user-facing reset.
+		});
+	});
+
+	copyBtn.addEventListener("click", function () {
+		const url = shareLink.value;
+		const writeText = (navigator.clipboard && navigator.clipboard.writeText)
+			? navigator.clipboard.writeText(url)
+			: Promise.reject(new Error("no clipboard"));
+		writeText.then(function () {
+			copyStatus.textContent = "Copied!";
+			setTimeout(function () { copyStatus.textContent = ""; }, 1500);
+		}).catch(function () {
+			shareLink.select();
+			copyStatus.textContent = "Selected — press Cmd/Ctrl+C to copy.";
+		});
+	});
+})();
+</script>
+{{end}}

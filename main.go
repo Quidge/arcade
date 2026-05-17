@@ -1,28 +1,23 @@
-// Command scribble serves a single hello-world HTML page on /.
+// Command scribble serves the scribble web app.
 package main
 
 import (
-	"bytes"
-	"embed"
 	"encoding/json"
-	"html/template"
 	"log"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/quidge/scribble/internal/gamesession"
+	"github.com/quidge/scribble/internal/web"
 )
 
 const (
 	defaultAddr       = ":8080"
 	defaultDataDir    = "/data"
 	readHeaderTimeout = 5 * time.Second
-	readTimeout       = 10 * time.Second
-	writeTimeout      = 10 * time.Second
 	idleTimeout       = 60 * time.Second
 )
-
-//go:embed templates
-var templatesFS embed.FS
 
 // gitSHA and builtAt are injected at build time via
 // -ldflags "-X main.gitSHA=... -X main.builtAt=...".
@@ -33,47 +28,11 @@ var (
 
 var startedAt = time.Now()
 
-var homeTmpl = template.Must(template.ParseFS(templatesFS,
-	"templates/base.tmpl",
-	"templates/pages/home.tmpl",
-))
-
-type homeData struct {
-	Title   string
-	Heading string
-	Message string
-	Year    int
-	GitSHA  string
-}
-
 type healthResponse struct {
 	GitSHA    string `json:"git_sha"`
 	BuiltAt   string `json:"built_at"`
 	StartedAt string `json:"started_at"`
 	Uptime    string `json:"uptime"`
-}
-
-func render(w http.ResponseWriter, tmpl *template.Template, name string, data any) {
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
-		log.Printf("render %s: %v", name, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := buf.WriteTo(w); err != nil {
-		log.Printf("write %s: %v", name, err)
-	}
-}
-
-func homeHandler(w http.ResponseWriter, r *http.Request) {
-	render(w, homeTmpl, "base.tmpl", homeData{
-		Title:   "Home",
-		Heading: "hello, world",
-		Message: "A tiny Go server serving a single page from the standard library.",
-		Year:    time.Now().Year(),
-		GitSHA:  gitSHA,
-	})
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -103,16 +62,19 @@ func main() {
 	// established path convention without re-litigating it.
 	log.Printf("data dir %q (currently unused)", dataDir)
 
+	registry := gamesession.NewRegistry()
+	srvWeb := web.New(registry, gitSHA)
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", homeHandler)
+	srvWeb.Routes(mux)
 	mux.HandleFunc("GET /healthz", healthHandler)
 
+	// Read/Write timeouts are intentionally omitted: applying them to
+	// the mux would also kill long-lived WebSocket connections.
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: readHeaderTimeout,
-		ReadTimeout:       readTimeout,
-		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
 
