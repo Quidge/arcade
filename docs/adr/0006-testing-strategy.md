@@ -20,6 +20,6 @@ Scenarios are not executed by `go test`. Until a future scenario-testing skill e
 
 ## Consequences
 
-- The `justfile`'s existing `test` recipe (`go test ./...`) runs unit tests only. A new recipe `test-integration` (or folding `-tags=integration` into `check`) should be added by the first slice that introduces integration tests, so CI runs both tiers.
+- The `justfile` exposes `test-unit` (default, untagged `go test ./...`), `test-integration` (`go test -tags=integration ./tests/integration/...`), and `test-all` (both, in sequence). CI's `check` recipe runs `test-all`, so both tiers gate every PR.
 - "Deep module" is the organizing principle for what gets a focused unit test. Working definition: a module whose interface is small relative to its implementation. Examples in the current design: Crockford Base32 codec, GameSession registry, Host promotion engine, Round controller, Draft store, Ghost provider. When in doubt, ask whether the test covers a single small API with rich behavior behind it — if yes, unit; if it composes multiple such APIs, integration.
 - Visual conformance verification is manual at PR review until the scenario-testing skill exists. The scope this covers is acknowledged-small (a few screens and interactions through the early slices); the gap closes when the skill ships. New scenarios should not be added merely to expand visual coverage during this gap.
