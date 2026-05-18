@@ -19,8 +19,7 @@ tidy = "just tidy"
 # Read-only gate before merging. lint and test are independent, so
 # run them concurrently in a single block.
 [[pre-merge]]
-lint = "just lint"
-test = "just test"
+check = "just check"
 
 # Per-worktree dev server URL in `wt list`. main.go reads $ADDR,
 # and `just web-wt` uses the same hash_port to pick the matching port.
