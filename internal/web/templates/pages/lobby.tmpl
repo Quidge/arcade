@@ -51,6 +51,14 @@
 	}
 	.roster-list li:last-child { border-bottom: none; }
 	.roster-list .self { color: var(--accent-strong); font-weight: 500; }
+	.roster-list li.disconnected { color: var(--muted); }
+	.roster-list li.disconnected .self { color: var(--muted); }
+	.disconnected-tag {
+		font-size: 0.78rem;
+		color: var(--muted);
+		font-style: italic;
+		margin-left: 0.35rem;
+	}
 	.host-badge {
 		display: inline-block;
 		font-size: 0.7rem;
@@ -164,6 +172,13 @@
 				badge.textContent = "Host";
 				li.appendChild(badge);
 			}
+			if (p.connected === false) {
+				li.classList.add("disconnected");
+				const tag = document.createElement("span");
+				tag.className = "disconnected-tag";
+				tag.textContent = "(disconnected)";
+				li.appendChild(tag);
+			}
 			roster.appendChild(li);
 		}
 	}
@@ -200,14 +215,17 @@
 		// handler) arrive after the upgrade-handshake "open" event,
 		// so we may already be showing the connected UI. Always
 		// reset to name entry for these.
-		if (reason.indexOf("duplicate name") === 0) {
-			resetToNameEntry();
-			showNameError("That display name is already taken in this game session. Please pick another.");
-			return;
-		}
 		if (reason.indexOf("session full") === 0) {
 			resetToNameEntry();
 			showNameError("This game session is full (8 players maximum).");
+			return;
+		}
+		if (reason.indexOf("superseded") === 0) {
+			// Another connection (refresh, second tab, or impostor)
+			// took over this seat. The new connection owns the seat
+			// now; this tab is informational.
+			status.classList.remove("connected");
+			status.textContent = "This seat was taken over by another connection.";
 			return;
 		}
 

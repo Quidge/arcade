@@ -24,12 +24,14 @@ import (
 
 // rosterMsg mirrors the wire-format envelope so this test can
 // assert on the JSON without depending on internal/web's private
-// types.
+// types. The Connected field exercises the wire-format contract
+// added by the persistent-seat slice.
 type rosterMsg struct {
 	Type    string `json:"type"`
 	Players []struct {
-		Name string `json:"name"`
-		Host bool   `json:"host"`
+		Name      string `json:"name"`
+		Host      bool   `json:"host"`
+		Connected bool   `json:"connected"`
 	} `json:"players"`
 }
 
@@ -89,12 +91,7 @@ func dialAs(t *testing.T, srv *httptest.Server, code, name string) (*websocket.C
 	defer cancel()
 	c, resp, err := websocket.Dial(ctx, wsURL(srv, code, name), nil)
 	if err != nil {
-		// If the server rejects with a 4xx, websocket.Dial returns
-		// non-nil resp even on err; the caller may inspect it.
 		return nil, resp
-	}
-	if err != nil {
-		t.Fatalf("dial as %s: %v", name, err)
 	}
 	return c, resp
 }
@@ -151,9 +148,8 @@ func TestTwoPlayersSeeEachOtherInRoster(t *testing.T) {
 	}
 	defer alice.CloseNow()
 
-	// Alice should see herself, host=true.
 	m := readRoster(t, alice)
-	if len(m.Players) != 1 || m.Players[0].Name != "Alice" || !m.Players[0].Host {
+	if len(m.Players) != 1 || m.Players[0].Name != "Alice" || !m.Players[0].Host || !m.Players[0].Connected {
 		t.Fatalf("initial roster for Alice: %+v", m)
 	}
 
@@ -163,84 +159,39 @@ func TestTwoPlayersSeeEachOtherInRoster(t *testing.T) {
 	}
 	defer bob.CloseNow()
 
-	// Alice should see Bob join.
 	m = readUntil(t, alice, func(m rosterMsg) bool { return len(m.Players) == 2 })
-	if !rosterContains(m, "Alice", true) {
-		t.Errorf("Alice's broadcast roster missing Alice/host: %+v", m)
+	if !rosterContains(m, "Alice", true, true) {
+		t.Errorf("Alice's broadcast roster missing Alice/host/connected: %+v", m)
 	}
-	if !rosterContains(m, "Bob", false) {
-		t.Errorf("Alice's broadcast roster missing Bob/non-host: %+v", m)
+	if !rosterContains(m, "Bob", false, true) {
+		t.Errorf("Alice's broadcast roster missing Bob/non-host/connected: %+v", m)
 	}
 
-	// Bob should see both players.
 	m = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
-	if !rosterContains(m, "Alice", true) {
-		t.Errorf("Bob's initial/broadcast roster missing Alice/host: %+v", m)
+	if !rosterContains(m, "Alice", true, true) {
+		t.Errorf("Bob's broadcast roster missing Alice/host/connected: %+v", m)
 	}
-	if !rosterContains(m, "Bob", false) {
-		t.Errorf("Bob's initial/broadcast roster missing Bob: %+v", m)
+	if !rosterContains(m, "Bob", false, true) {
+		t.Errorf("Bob's broadcast roster missing Bob: %+v", m)
 	}
 }
 
-func rosterContains(m rosterMsg, name string, host bool) bool {
+// rosterContains asserts the roster snapshot carries a player with
+// the named host and connected flags. The Connected check exercises
+// the wire-format contract on every assertion path.
+func rosterContains(m rosterMsg, name string, host bool, connected bool) bool {
 	for _, p := range m.Players {
-		if p.Name == name && p.Host == host {
+		if p.Name == name && p.Host == host && p.Connected == connected {
 			return true
 		}
 	}
 	return false
 }
 
-func TestDuplicateNameRejected(t *testing.T) {
-	srv, _ := newApp(t)
-	code := createSession(t, srv)
-
-	alice, _ := dialAs(t, srv, code, "Alice")
-	if alice == nil {
-		t.Fatalf("Alice failed to connect")
-	}
-	defer alice.CloseNow()
-	_ = readRoster(t, alice)
-
-	// Same name should be rejected with a close frame.
-	dupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	dup, _, err := websocket.Dial(dupCtx, wsURL(srv, code, "Alice"), nil)
-	if err != nil {
-		// Some browsers/SDKs surface the close as a dial error.
-		// In that case, the test's stop condition is just "no
-		// session join occurred for the duplicate"; assert that
-		// Alice received no second roster.
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		_, _, perr := alice.Read(ctx)
-		if perr == nil {
-			t.Errorf("Alice saw a roster update despite duplicate-name rejection")
-		}
-		return
-	}
-	defer dup.CloseNow()
-	// Read should immediately yield a close error with the reason
-	// embedded.
-	ctx, cancelR := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancelR()
-	_, _, err = dup.Read(ctx)
-	if err == nil {
-		t.Fatalf("expected close on duplicate-name conn, got no error")
-	}
-	if status := websocket.CloseStatus(err); status != websocket.StatusPolicyViolation {
-		t.Errorf("close status = %v want %v (err=%v)", status, websocket.StatusPolicyViolation, err)
-	}
-	if !strings.Contains(err.Error(), "duplicate name") {
-		t.Errorf("close reason did not mention duplicate name: %v", err)
-	}
-}
-
 func TestCapExceededRejected(t *testing.T) {
 	srv, _ := newApp(t)
 	code := createSession(t, srv)
 
-	// Connect 8 players and keep them around.
 	conns := make([]*websocket.Conn, 0, gamesession.MaxPlayers)
 	for i := 0; i < gamesession.MaxPlayers; i++ {
 		name := "p" + string(rune('0'+i))
@@ -257,8 +208,6 @@ func TestCapExceededRejected(t *testing.T) {
 	defer cancel()
 	over, _, err := websocket.Dial(dupCtx, wsURL(srv, code, "overflow"), nil)
 	if err != nil {
-		// dial-time close from upgrade-then-immediate-close; treat
-		// as success because the server signalled the rejection.
 		return
 	}
 	defer over.CloseNow()
@@ -277,9 +226,82 @@ func TestCapExceededRejected(t *testing.T) {
 	}
 }
 
+func TestCapExceededWithDisconnectedSeat(t *testing.T) {
+	srv, reg := newApp(t)
+	code := createSession(t, srv)
+
+	conns := make([]*websocket.Conn, 0, gamesession.MaxPlayers)
+	for i := 0; i < gamesession.MaxPlayers; i++ {
+		name := "p" + string(rune('0'+i))
+		c, _ := dialAs(t, srv, code, name)
+		if c == nil {
+			t.Fatalf("Player %d failed to connect", i)
+		}
+		defer c.CloseNow()
+		_ = readRoster(t, c)
+		conns = append(conns, c)
+	}
+	// Disconnect one — seat persists. Use CloseNow rather than the
+	// graceful Close because we don't care about the close-frame
+	// handshake here, only that the server-side handler exits and
+	// runs its deferred Disconnect.
+	_ = conns[0].CloseNow()
+
+	// Poll the domain registry directly: this avoids racing the
+	// broadcast pump and the per-conn read buffers (which would
+	// require draining each conn under load).
+	session, ok := reg.Lookup(code)
+	if !ok {
+		t.Fatalf("session %q not found in registry", code)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var p0 gamesession.Player
+		for _, p := range session.Roster() {
+			if p.Name == "p0" {
+				p0 = p
+				break
+			}
+		}
+		if p0.Name == "p0" && !p0.Connected {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	stillConnected := false
+	for _, p := range session.Roster() {
+		if p.Name == "p0" && p.Connected {
+			stillConnected = true
+		}
+	}
+	if stillConnected {
+		t.Fatalf("server never registered p0 as disconnected within deadline")
+	}
+
+	dupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	over, _, err := websocket.Dial(dupCtx, wsURL(srv, code, "overflow"), nil)
+	if err != nil {
+		// dial-time close treated as success.
+		return
+	}
+	defer over.CloseNow()
+	ctx, cancelR := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancelR()
+	_, _, err = over.Read(ctx)
+	if err == nil {
+		t.Fatalf("expected close on 9th conn while one seat disconnected, got no error")
+	}
+	if status := websocket.CloseStatus(err); status != websocket.StatusPolicyViolation {
+		t.Errorf("close status = %v want %v (err=%v)", status, websocket.StatusPolicyViolation, err)
+	}
+	if !strings.Contains(err.Error(), "session full") {
+		t.Errorf("close reason did not mention session full: %v", err)
+	}
+}
+
 func TestUnknownCodeReturns404(t *testing.T) {
 	srv, _ := newApp(t)
-	// "Z9Z-Z9Z" is well-formed-looking but the registry is empty.
 	resp, err := http.Get(srv.URL + "/g/Z9Z-Z9Z")
 	if err != nil {
 		t.Fatalf("GET unknown: %v", err)
@@ -300,12 +322,10 @@ func TestFirstClientHostBadgePersists(t *testing.T) {
 	}
 	defer alice.CloseNow()
 	m := readRoster(t, alice)
-	if !rosterContains(m, "Alice", true) {
-		t.Fatalf("Alice not host in initial roster: %+v", m)
+	if !rosterContains(m, "Alice", true, true) {
+		t.Fatalf("Alice not host/connected in initial roster: %+v", m)
 	}
 
-	// Connect a few more; Alice keeps the host badge in every
-	// subsequent broadcast.
 	for _, name := range []string{"Bob", "Carol", "Dave"} {
 		c, _ := dialAs(t, srv, code, name)
 		if c == nil {
@@ -314,54 +334,116 @@ func TestFirstClientHostBadgePersists(t *testing.T) {
 		defer c.CloseNow()
 	}
 	m = readUntil(t, alice, func(m rosterMsg) bool { return len(m.Players) == 4 })
-	if !rosterContains(m, "Alice", true) {
+	if !rosterContains(m, "Alice", true, true) {
 		t.Errorf("Alice lost host badge after others joined: %+v", m)
 	}
 	for _, name := range []string{"Bob", "Carol", "Dave"} {
-		if !rosterContains(m, name, false) {
-			t.Errorf("missing %s with host=false: %+v", name, m)
+		if !rosterContains(m, name, false, true) {
+			t.Errorf("missing %s with host=false/connected=true: %+v", name, m)
 		}
 	}
 }
 
-func TestRejoinAfterDisconnect(t *testing.T) {
+func TestHostBadgePersistsAcrossDisconnectReconnect(t *testing.T) {
 	srv, _ := newApp(t)
 	code := createSession(t, srv)
 
 	alice, _ := dialAs(t, srv, code, "Alice")
 	if alice == nil {
-		t.Fatalf("Alice 1 failed to connect")
+		t.Fatalf("Alice failed to connect")
 	}
 	_ = readRoster(t, alice)
 
+	bob, _ := dialAs(t, srv, code, "Bob")
+	if bob == nil {
+		t.Fatalf("Bob failed to connect")
+	}
+	defer bob.CloseNow()
+	// Bob sees the two-player roster with Alice as host.
+	m := readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
+	if !rosterContains(m, "Alice", true, true) {
+		t.Fatalf("Bob's roster missing Alice/host/connected: %+v", m)
+	}
+
 	// Alice disconnects.
 	_ = alice.Close(websocket.StatusNormalClosure, "")
-
-	// Wait for the server to process the leave (the broadcaster's
-	// Subscribe must return and the deferred Leave run).
-	// Drain isn't strictly needed; we just rejoin with same name.
-	var alice2 *websocket.Conn
-	var resp *http.Response
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		alice2, resp = dialAs(t, srv, code, "Alice")
-		if alice2 != nil {
-			break
-		}
-		_ = resp
-		time.Sleep(20 * time.Millisecond)
+	// Bob should see Alice marked disconnected, seat preserved.
+	m = readUntil(t, bob, func(m rosterMsg) bool {
+		return rosterContains(m, "Alice", true, false)
+	})
+	if len(m.Players) != 2 {
+		t.Errorf("after Alice disconnect, Bob's roster should still have 2 seats: %+v", m)
 	}
+
+	// Alice rejoins under the same name.
+	alice2, _ := dialAs(t, srv, code, "Alice")
 	if alice2 == nil {
-		t.Fatalf("rejoin as Alice failed")
+		t.Fatalf("Alice rejoin failed")
 	}
 	defer alice2.CloseNow()
-	m := readRoster(t, alice2)
-	if !rosterContains(m, "Alice", true) {
-		t.Errorf("rejoined Alice should be host (only player): %+v", m)
+	m = readUntil(t, alice2, func(m rosterMsg) bool { return len(m.Players) == 2 })
+	if !rosterContains(m, "Alice", true, true) {
+		t.Errorf("rejoined Alice should be host/connected: %+v", m)
+	}
+
+	// Bob also sees Alice's return.
+	m = readUntil(t, bob, func(m rosterMsg) bool {
+		return rosterContains(m, "Alice", true, true)
+	})
+	if !rosterContains(m, "Bob", false, true) {
+		t.Errorf("Bob lost from roster after Alice reconnect: %+v", m)
 	}
 }
 
-// TestConcurrentJoinsAndLeavesIsRaceFree is a smoke test under -race.
+func TestSupersedeClosesOldConnection(t *testing.T) {
+	srv, _ := newApp(t)
+	code := createSession(t, srv)
+
+	alice1, _ := dialAs(t, srv, code, "Alice")
+	if alice1 == nil {
+		t.Fatalf("alice1 failed to connect")
+	}
+	defer alice1.CloseNow()
+	_ = readRoster(t, alice1)
+
+	// A second connection arrives under the same name. The first
+	// must be closed with the "superseded" reason.
+	alice2, _ := dialAs(t, srv, code, "Alice")
+	if alice2 == nil {
+		t.Fatalf("alice2 failed to connect")
+	}
+	defer alice2.CloseNow()
+
+	// Drain any in-flight roster broadcasts (the PlayerJoined emit
+	// for alice1 races with alice1's broadcaster subscribe; the
+	// fan-out may or may not reach this conn). The seat-supersede
+	// close frame must arrive eventually.
+	deadline := time.Now().Add(2 * time.Second)
+	var closeErr error
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		_, _, err := alice1.Read(ctx)
+		cancel()
+		if err == nil {
+			continue
+		}
+		closeErr = err
+		break
+	}
+	if closeErr == nil {
+		t.Fatalf("expected alice1 close frame after supersede, never received")
+	}
+	if !strings.Contains(closeErr.Error(), "superseded") {
+		t.Errorf("close reason did not mention superseded: %v", closeErr)
+	}
+
+	// alice2 sees the live roster — one seat, connected.
+	m := readRoster(t, alice2)
+	if !rosterContains(m, "Alice", true, true) {
+		t.Errorf("alice2 initial roster missing Alice/host/connected: %+v", m)
+	}
+}
+
 func TestConcurrentJoinsAndLeavesIsRaceFree(t *testing.T) {
 	srv, _ := newApp(t)
 	code := createSession(t, srv)
@@ -376,7 +458,6 @@ func TestConcurrentJoinsAndLeavesIsRaceFree(t *testing.T) {
 			if c == nil {
 				return
 			}
-			// Stay connected briefly while broadcasts happen.
 			time.Sleep(150 * time.Millisecond)
 			_ = c.Close(websocket.StatusNormalClosure, "")
 		}()

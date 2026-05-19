@@ -54,22 +54,54 @@ this single scenario.
    briefly shows "Copied!" before fading back.
 
 8. **Bob:** Closes his tab.
-   Expected: on Alice's tab, Bob disappears from the Players list
-   within a second or two. Alice remains, still marked Host.
+   Expected: on Alice's tab, Bob's entry in the Players list is
+   marked as disconnected (greyed-out name with a "(disconnected)"
+   tag after it) within a second or two. Bob's seat is *not*
+   removed — his name is still visible. Alice remains, still
+   marked Host and connected.
+
+9. **Alice:** Closes her tab.
+   Expected: there is no other connected client to observe, but
+   the GameSession still holds Alice's seat with the Host badge
+   and `connected=false`. The seat is preserved across the
+   disconnect.
+
+10. **Alice:** Reopens `/g/<code>` and types `Alice` into the input
+    again.
+    Expected: her Players panel reappears with both seats —
+    `Alice` (Host, connected) and `Bob` (greyed out as
+    disconnected). Alice's HOST badge is unchanged; her position
+    in the join order is unchanged. No "duplicate name" error;
+    the server dispatched a **Reconnect**, not a Join.
+
+11. **Charlie:** With Alice disconnected (between steps 9 and
+    10), opens `/g/<code>` and types `Alice` into the input.
+    Expected (impostor case, ADR 0003): Charlie's browser
+    successfully connects and lands on Alice's seat — there is no
+    auth, so the server can't tell impostor from owner, and
+    Reconnect replaces the prior live connection (there isn't
+    one). The lobby looks normal from Charlie's side.
+
+12. **Alice (after 11):** Reopens `/g/<code>` and types `Alice`.
+    Expected: under replace-always, Alice's new connection
+    supersedes Charlie's. Charlie's tab receives a close frame
+    with the "superseded" reason and shows "This seat was taken
+    over by another connection." Alice's lobby is live and
+    normal.
 
 ## Failure modes to verify by hand
 
 - **Unknown code:** visiting `/g/Z9Z-Z9Z` (well-formed but never
   created) returns a 404 page that links back to home.
-- **Duplicate display name:** with Alice already in the lobby, a
-  second tab joining with `Alice` shows the inline error
-  "That display name is already taken in this game session.
-  Please pick another." and the form stays editable.
-- **Lobby cap (8 players):** with 8 players connected, a 9th
-  tab attempting to join shows "This game session is full
-  (8 players maximum)." and the form stays editable.
+- **Lobby cap (8 players):** with 8 seats taken (connected or
+  disconnected), a 9th tab attempting to join shows "This game
+  session is full (8 players maximum)." and the form stays
+  editable. Disconnected seats are *not* silently reclaimed.
 - **Visually confusable code:** typing `/g/A4B-K9I` (contains `I`)
   in the address bar returns 404 — the alphabet rejects I, L, O, U.
+- **Multi-tab on the same device:** opening a second tab to the
+  same GameSession with the same display name supersedes the
+  first; the older tab shows the "superseded" status line.
 
 ## Notes for future slices
 
