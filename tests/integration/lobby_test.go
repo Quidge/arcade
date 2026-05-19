@@ -313,6 +313,10 @@ func TestUnknownCodeReturns404(t *testing.T) {
 }
 
 func TestFirstClientHostBadgePersists(t *testing.T) {
+	// With MaxPlayers temporarily clamped to 2 the original "Alice
+	// stays Host as Bob, Carol, Dave join" scenario collapses to
+	// "Alice stays Host as Bob joins." The intent — Host badge does
+	// not migrate on non-Host joins — is unchanged.
 	srv, _ := newApp(t)
 	code := createSession(t, srv)
 
@@ -326,21 +330,17 @@ func TestFirstClientHostBadgePersists(t *testing.T) {
 		t.Fatalf("Alice not host/connected in initial roster: %+v", m)
 	}
 
-	for _, name := range []string{"Bob", "Carol", "Dave"} {
-		c, _ := dialAs(t, srv, code, name)
-		if c == nil {
-			t.Fatalf("%s failed to connect", name)
-		}
-		defer c.CloseNow()
+	bob, _ := dialAs(t, srv, code, "Bob")
+	if bob == nil {
+		t.Fatalf("Bob failed to connect")
 	}
-	m = readUntil(t, alice, func(m rosterMsg) bool { return len(m.Players) == 4 })
+	defer bob.CloseNow()
+	m = readUntil(t, alice, func(m rosterMsg) bool { return len(m.Players) == 2 })
 	if !rosterContains(m, "Alice", true, true) {
-		t.Errorf("Alice lost host badge after others joined: %+v", m)
+		t.Errorf("Alice lost host badge after Bob joined: %+v", m)
 	}
-	for _, name := range []string{"Bob", "Carol", "Dave"} {
-		if !rosterContains(m, name, false, true) {
-			t.Errorf("missing %s with host=false/connected=true: %+v", name, m)
-		}
+	if !rosterContains(m, "Bob", false, true) {
+		t.Errorf("missing Bob with host=false/connected=true: %+v", m)
 	}
 }
 

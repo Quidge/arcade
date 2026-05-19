@@ -32,8 +32,9 @@ import (
 
 // MaxPlayers is the hard cap on Players per GameSession. The cap
 // counts seats, connected or not: a disconnected seat blocks a
-// would-be 9th joiner.
-const MaxPlayers = 8
+// would-be 3rd joiner.
+// TEMPORARY: clamped to 2 until N≥3 generalization slice.
+const MaxPlayers = 2
 
 // DefaultHostGraceDuration is the wait between a Host's Disconnect
 // and the auto-migration of the Host badge. ADR 0005 fixes this at
@@ -62,14 +63,16 @@ var ErrNotHost = errors.New("gamesession: caller is not the Host")
 var ErrSelfTransfer = errors.New("gamesession: cannot transfer Host to self")
 
 // ErrInvalidPhase is returned by Start when the GameSession is not
-// in the lobby, or by AdvanceFromRound when no Round is active.
+// in the lobby, by AdvanceFromRound when no Round is active, by
+// BeginRound when the current phase is not StateRoundComplete, or
+// by BeginReveal when the current phase is not StateRoundComplete.
 var ErrInvalidPhase = errors.New("gamesession: action not valid in current phase")
 
 // State discriminates the GameSession's coarse phase. Started at
-// StateLobby; transitions one-way via Start (→ StateRoundActive)
-// and AdvanceFromRound (→ StateRoundComplete). Future slices will
-// transition StateRoundComplete back to a new StateRoundActive for
-// Rounds 1..N.
+// StateLobby; transitions one-way through StateRoundActive (Start
+// or BeginRound), StateRoundComplete (AdvanceFromRound), and
+// either StateReveal (BeginReveal) or back through subsequent
+// Rounds before reaching the terminal StateEnded (End).
 type State int
 
 const (
@@ -82,8 +85,14 @@ const (
 	StateRoundActive
 	// StateRoundComplete is the post-finalization phase for the
 	// current Round, before the next Round (or reveal) begins.
-	// Issue #8 ends here pending multi-Round slices.
 	StateRoundComplete
+	// StateReveal is the post-final-Round phase, during which
+	// Chains are walked per ADR 0004. Per ADR 0009 the same
+	// "Leave collapses to Disconnect" rule applies here.
+	StateReveal
+	// StateEnded is the terminal phase. The Host has explicitly
+	// ended the GameSession; no further transitions are valid.
+	StateEnded
 )
 
 // Player is the public roster entry. Host is true for the seat that
@@ -215,6 +224,62 @@ func (g *GameSession) AdvanceFromRound() error {
 		return ErrInvalidPhase
 	}
 	g.state = StateRoundComplete
+	return nil
+}
+
+// BeginRound transitions the GameSession from StateRoundComplete
+// to StateRoundActive for Round roundNum (>0). caller must be the
+// current Host. Returns ErrNotHost if caller is not Host, or
+// ErrInvalidPhase if the current phase is not StateRoundComplete.
+//
+// Round 0 still goes through Start (which gates on StateLobby);
+// BeginRound covers Rounds 1..N-1.
+func (g *GameSession) BeginRound(caller string, roundNum int) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.state != StateRoundComplete {
+		return ErrInvalidPhase
+	}
+	if g.currentHostLocked() != caller {
+		return ErrNotHost
+	}
+	g.state = StateRoundActive
+	g.roundNum = roundNum
+	return nil
+}
+
+// BeginReveal transitions the GameSession from StateRoundComplete
+// to StateReveal. caller must be the current Host. Returns
+// ErrNotHost if caller is not Host, or ErrInvalidPhase if the
+// current phase is not StateRoundComplete.
+func (g *GameSession) BeginReveal(caller string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.state != StateRoundComplete {
+		return ErrInvalidPhase
+	}
+	if g.currentHostLocked() != caller {
+		return ErrNotHost
+	}
+	g.state = StateReveal
+	return nil
+}
+
+// End transitions the GameSession to StateEnded from any non-
+// terminal phase. caller must be the current Host. End is not
+// gated on reveal completion — the Host may end the GameSession
+// at any time. Returns ErrNotHost if caller is not the Host, or
+// ErrInvalidPhase if already in StateEnded.
+func (g *GameSession) End(caller string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.state == StateEnded {
+		return ErrInvalidPhase
+	}
+	if g.currentHostLocked() != caller {
+		return ErrNotHost
+	}
+	g.state = StateEnded
 	return nil
 }
 

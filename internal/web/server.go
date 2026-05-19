@@ -24,6 +24,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/quidge/scribble/internal/chain"
 	"github.com/quidge/scribble/internal/draft"
 	"github.com/quidge/scribble/internal/gamesession"
 	"github.com/quidge/scribble/internal/ghost"
@@ -31,6 +32,7 @@ import (
 	"github.com/quidge/scribble/internal/presence"
 	"github.com/quidge/scribble/internal/round"
 	"github.com/quidge/scribble/internal/seatconn"
+	"github.com/quidge/scribble/internal/strokes"
 )
 
 const (
@@ -76,25 +78,61 @@ type rosterMsg struct {
 	Players []gamesession.Player `json:"players"`
 }
 
-// roundStateMsg carries the active Round's per-Player state. Sent
-// broadcast when a Round starts (draft_text empty, submitted false)
-// and unicast when a Player Reconnects mid-Round (their accumulated
-// draft + submission flag). DeadlineMS is the absolute deadline in
-// epoch milliseconds, or null when the Host chose "off."
+// roundStateMsg carries the active Round's per-Player state.
+// Sent broadcast at Round start and unicast on Reconnect-mid-
+// Round. The envelope is generalized so future Round types
+// (Drawings in Round 1+) reuse the same shape:
+//
+//   - ContentKind discriminates the slot type for this Round
+//     ("caption" | "drawing").
+//   - Prompt is the previous Entry on this seat's assigned Chain,
+//     or null when there is no prompt (Round 0).
+//   - Draft is a polymorphic payload — for "caption" it carries
+//     {kind:"text", text:"…"}; for "drawing" it would carry
+//     {kind:"strokes", strokes:[…]}.
+//
+// DeadlineMS is the absolute deadline in epoch milliseconds, or
+// null when the Host chose "off."
 type roundStateMsg struct {
-	Type       string `json:"type"`
-	DeadlineMS *int64 `json:"deadline_ms"`
-	DraftText  string `json:"draft_text"`
-	Submitted  bool   `json:"submitted"`
+	Type        string       `json:"type"`
+	Round       int          `json:"round"`
+	DeadlineMS  *int64       `json:"deadline_ms"`
+	ContentKind string       `json:"content_kind"`
+	Prompt      *promptMsg   `json:"prompt"`
+	Draft       draftPayload `json:"draft"`
+	Submitted   bool         `json:"submitted"`
 }
 
-// roundEndedEntry mirrors round.Entry on the wire. Ghost-filled
+// promptMsg is the previous Entry shown to a Player as context
+// for the current Round. Kind discriminates the payload: for a
+// Caption prompt, Text is set; for a Drawing prompt, Strokes is
+// set.
+type promptMsg struct {
+	Kind    string           `json:"kind"`
+	Text    string           `json:"text,omitempty"`
+	Strokes []strokes.Stroke `json:"strokes,omitempty"`
+}
+
+// draftPayload is the per-Player accumulated Draft delivered with
+// a round-state envelope. Kind is "text" or "strokes"; exactly one
+// of Text / Strokes is set.
+type draftPayload struct {
+	Kind    string           `json:"kind"`
+	Text    string           `json:"text,omitempty"`
+	Strokes []strokes.Stroke `json:"strokes,omitempty"`
+}
+
+// roundEndedEntry mirrors a chain.Entry on the wire. Ghost-filled
 // slots carry GhostLabel ("X's Ghost"); non-Ghost entries omit it.
+// For Caption entries, Text is set; for Drawing entries, Strokes
+// is set. The Round 0 slice only ever emits Caption entries.
 type roundEndedEntry struct {
-	Player     string `json:"player"`
-	Text       string `json:"text"`
-	Ghost      bool   `json:"ghost"`
-	GhostLabel string `json:"ghost_label,omitempty"`
+	Player     string           `json:"player"`
+	Kind       string           `json:"kind"`
+	Text       string           `json:"text,omitempty"`
+	Strokes    []strokes.Stroke `json:"strokes,omitempty"`
+	Ghost      bool             `json:"ghost"`
+	GhostLabel string           `json:"ghost_label,omitempty"`
 }
 
 // roundEndedMsg notifies clients that the active Round has been
@@ -125,22 +163,66 @@ type Server struct {
 
 // roomState bundles the per-GameSession runtime state the web
 // layer manages alongside the domain GameSession: the presence
-// broadcaster, the Draft store, the Ghost provider, the Round
-// controller, and the Host-chosen pending timer setting.
+// broadcaster, the per-Round Draft stores (text + strokes), the
+// Ghost provider, the Round controller, the Chain store, the
+// reveal cursor, and the Host-chosen pending timer setting.
 type roomState struct {
-	broadcaster *presence.Broadcaster
-	drafts      *draft.Store
-	ghosts      *ghost.Provider
-	controller  *round.Controller
+	broadcaster  *presence.Broadcaster
+	drafts       *draft.Store
+	strokeDrafts *strokes.Store
+	ghosts       *ghost.Provider
+	controller   *round.Controller
+	chains       *chain.Store
+	revealCursor *revealCursor
 
 	mu sync.Mutex
 	// pendingTimerSeconds is the Host's most recent Round-timer
 	// selection from the lobby dropdown. Zero means "off."
 	pendingTimerSeconds int
+	// roundTimerSeconds is the Round-timer setting sealed at Start.
+	// It survives across BeginRound transitions so Rounds 1..N use
+	// the same timer the Host picked in the lobby.
+	roundTimerSeconds int
 	// lastEntries is the most recent finalized Entries set —
 	// preserved so a Player who Reconnects after Round-end can
 	// still see the room's state. Nil before any Round ends.
-	lastEntries []round.Entry
+	lastEntries []chain.Entry
+	// seatConns is the per-seat live WebSocket, used to unicast
+	// round-state at Round-start. Updated by handleWS as
+	// connections come and go.
+	seatConns map[string]*websocket.Conn
+}
+
+func (r *roomState) bindSeatConn(name string, conn *websocket.Conn) {
+	r.mu.Lock()
+	if r.seatConns == nil {
+		r.seatConns = map[string]*websocket.Conn{}
+	}
+	r.seatConns[name] = conn
+	r.mu.Unlock()
+}
+
+func (r *roomState) unbindSeatConn(name string, conn *websocket.Conn) {
+	r.mu.Lock()
+	if cur, ok := r.seatConns[name]; ok && cur == conn {
+		delete(r.seatConns, name)
+	}
+	r.mu.Unlock()
+}
+
+func (r *roomState) seatConn(name string) *websocket.Conn {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.seatConns[name]
+}
+
+// cursor returns the room's reveal cursor. The cursor is
+// constructed up-front but not wired to any reveal flow at this
+// slice's scope; a future slice will populate it (via
+// newRevealCursor with the per-Chain Len values) at the
+// StateRoundComplete → StateReveal transition.
+func (r *roomState) cursor() *revealCursor {
+	return r.revealCursor
 }
 
 type templates struct {
@@ -342,6 +424,13 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	sub := b.Add(conn)
 	defer b.Remove(sub)
 
+	// Register this conn for per-seat unicast. The unbind on
+	// handler exit only deletes the entry if this conn is still
+	// the current owner — supersede races (a later Acquire on the
+	// same seat) leave the new owner's binding intact.
+	room.bindSeatConn(name, conn)
+	defer room.unbindSeatConn(name, conn)
+
 	// Send the connecting Player the round-relevant snapshot
 	// matching the current Phase. In Lobby this is a no-op; in
 	// RoundActive we unicast a round-state with their accumulated
@@ -445,8 +534,14 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		}
 		room.mu.Lock()
 		secs := room.pendingTimerSeconds
+		room.roundTimerSeconds = secs
 		room.mu.Unlock()
-		s.startRound(session, room, 0, secs)
+		seats := rosterNames(session)
+		// Pin the chain.Store roster at Round-0 start. Init is
+		// idempotent so subsequent Rounds (which call it via
+		// BeginRound) are no-ops.
+		room.chains.Init(seats)
+		s.startRound(session, room, 0, secs, seats)
 	case "draft":
 		st, roundNum := session.Phase()
 		if st != gamesession.StateRoundActive {
@@ -455,12 +550,19 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		if !room.controller.HasSeat(selfName) {
 			return
 		}
+		// Round 0 ships text Drafts. Future Round types will
+		// dispatch on content_kind here.
 		room.drafts.Apply(roundNum, selfName, cmd.Text)
 	case "submit":
-		st, _ := session.Phase()
+		st, roundNum := session.Phase()
 		if st != gamesession.StateRoundActive {
 			return
 		}
+		// Seal the appropriate Draft *before* informing the
+		// controller, so the snapshot inside OnEnd matches what
+		// the seat last sent. The controller no longer touches
+		// any Draft store directly.
+		room.drafts.Submit(roundNum, selfName)
 		if err := room.controller.Submit(selfName); err != nil {
 			log.Printf("submit by %s: %v", selfName, err)
 		}
@@ -476,13 +578,13 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 	}
 }
 
-// startRound kicks off the Round controller for round 0 and
-// broadcasts the initial round-state.
-func (s *Server) startRound(session *gamesession.GameSession, room *roomState, roundNum int, timerSeconds int) {
-	seats := make([]string, 0)
-	for _, p := range session.Roster() {
-		seats = append(seats, p.Name)
-	}
+// startRound kicks off the Round controller for roundNum and
+// unicasts a personalized round-state to each connected seat. The
+// envelope is unicast (not broadcast) because the per-seat Prompt
+// and Draft fields differ per seat in Rounds 1+. Round 0 sends
+// the same content_kind="caption" / prompt=null payload to every
+// seat, but the unicast path is used uniformly for shape symmetry.
+func (s *Server) startRound(session *gamesession.GameSession, room *roomState, roundNum int, timerSeconds int, seats []string) {
 	deadline, err := room.controller.Start(roundNum, seats, timerSeconds)
 	if err != nil {
 		log.Printf("round.Start: %v", err)
@@ -493,24 +595,99 @@ func (s *Server) startRound(session *gamesession.GameSession, room *roomState, r
 		ms := deadline.UnixMilli()
 		deadlineMS = &ms
 	}
-	payload, err := json.Marshal(roundStateMsg{
-		Type:       "round-state",
-		DeadlineMS: deadlineMS,
-		DraftText:  "",
-		Submitted:  false,
-	})
-	if err != nil {
-		log.Printf("marshal round-state: %v", err)
-		return
+	_ = session // session reserved for future per-seat dispatch
+	for _, seat := range seats {
+		msg := buildRoundStateMsg(room, roundNum, seat, deadlineMS)
+		payload, err := json.Marshal(msg)
+		if err != nil {
+			log.Printf("marshal round-state: %v", err)
+			continue
+		}
+		conn := room.seatConn(seat)
+		if conn == nil {
+			// Disconnected seats get the round-state on Reconnect
+			// via writePhaseSnapshot; nothing to write now.
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), wsWriteTimeout)
+		if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
+			log.Printf("unicast round-state to %s: %v", seat, err)
+		}
+		cancel()
 	}
-	room.broadcaster.Broadcast(payload)
+}
+
+// buildRoundStateMsg constructs the round-state payload for one
+// seat at roundNum. For Round 0 the content kind is "caption" and
+// there is no prompt; future Round types override these from the
+// chain.Store and the appropriate Draft store. The Draft field is
+// always present — empty payload for a freshly-started Round, or
+// the seat's accumulated Draft on Reconnect.
+func buildRoundStateMsg(room *roomState, roundNum int, seat string, deadlineMS *int64) roundStateMsg {
+	// Round 0 is currently the only shipped Round and is always
+	// text/caption. The dispatch below pins this slice; when
+	// Round 1 ships, contentKind and the Draft-store lookup will
+	// vary per Round.
+	contentKind := "caption"
+	textSnap := room.drafts.Get(roundNum, seat)
+	return roundStateMsg{
+		Type:        "round-state",
+		Round:       roundNum,
+		DeadlineMS:  deadlineMS,
+		ContentKind: contentKind,
+		Prompt:      nil,
+		Draft: draftPayload{
+			Kind: "text",
+			Text: textSnap.Text,
+		},
+		Submitted: textSnap.Submitted,
+	}
 }
 
 // onRoundEnd is invoked by the Round controller's OnEnd callback.
-// It records the entries, advances the session phase, and
-// broadcasts a round-ended envelope so clients can swap to the
-// post-Round placeholder.
-func (s *Server) onRoundEnd(session *gamesession.GameSession, room *roomState, roundNum int, entries []round.Entry) {
+// It assembles chain.Entry values from the appropriate Draft store
+// (with Ghost-fill for empty seats), appends them to the Chain
+// store, advances the session phase, and broadcasts a round-ended
+// envelope so clients can swap to the post-Round placeholder.
+//
+// The callback is the only writer of chain.Store from production
+// code paths; the controller now hands us (round, seats, reason)
+// and we own assembly. Future Round types (Round 1+ Drawings)
+// dispatch on roundNum here to seal the strokes store and build
+// EntryDrawing values instead.
+func (s *Server) onRoundEnd(session *gamesession.GameSession, room *roomState, roundNum int, seats []string) {
+	picker := room.ghosts.Picker()
+	entries := make([]chain.Entry, 0, len(seats))
+	// Round 0 is text/caption. Subsequent Round types branch here.
+	for _, seat := range seats {
+		snap := room.drafts.Get(roundNum, seat)
+		if snap.Text == "" {
+			entries = append(entries, chain.Entry{
+				Player: seat,
+				Kind:   chain.EntryCaption,
+				Ghost:  true,
+				Text:   picker.Pick(seat, ghost.StarterCaption),
+			})
+			continue
+		}
+		entries = append(entries, chain.Entry{
+			Player: seat,
+			Kind:   chain.EntryCaption,
+			Ghost:  false,
+			Text:   snap.Text,
+		})
+	}
+
+	// Plumb finalized entries into the Chain store. The Chain
+	// store is the durable home for Entries across Rounds; the
+	// roomState's lastEntries copy is the convenience snapshot
+	// used by reconnect-mid-RoundComplete.
+	for _, e := range entries {
+		if err := room.chains.Append(roundNum, e.Player, e); err != nil {
+			log.Printf("chain.Append round=%d seat=%s: %v", roundNum, e.Player, err)
+		}
+	}
+
 	if err := session.AdvanceFromRound(); err != nil {
 		log.Printf("AdvanceFromRound on Round-end: %v", err)
 		return
@@ -519,20 +696,50 @@ func (s *Server) onRoundEnd(session *gamesession.GameSession, room *roomState, r
 	room.lastEntries = entries
 	room.mu.Unlock()
 
-	wireEntries := make([]roundEndedEntry, 0, len(entries))
-	for _, e := range entries {
-		w := roundEndedEntry{Player: e.Player, Text: e.Text, Ghost: e.Ghost}
-		if e.Ghost {
-			w.GhostLabel = e.Player + "'s Ghost"
-		}
-		wireEntries = append(wireEntries, w)
-	}
-	payload, err := json.Marshal(roundEndedMsg{Type: "round-ended", Entries: wireEntries})
+	payload, err := json.Marshal(roundEndedMsg{
+		Type:    "round-ended",
+		Entries: wireEntriesFromChain(entries),
+	})
 	if err != nil {
 		log.Printf("marshal round-ended: %v", err)
 		return
 	}
 	room.broadcaster.Broadcast(payload)
+}
+
+// wireEntriesFromChain maps a slice of chain.Entry to the wire
+// shape, including the GhostLabel for Ghost-filled slots and the
+// per-Kind payload (Text vs Strokes).
+func wireEntriesFromChain(entries []chain.Entry) []roundEndedEntry {
+	out := make([]roundEndedEntry, 0, len(entries))
+	for _, e := range entries {
+		w := roundEndedEntry{Player: e.Player, Ghost: e.Ghost}
+		switch e.Kind {
+		case chain.EntryCaption:
+			w.Kind = "caption"
+			w.Text = e.Text
+		case chain.EntryDrawing:
+			w.Kind = "drawing"
+			w.Strokes = e.Strokes
+		}
+		if e.Ghost {
+			w.GhostLabel = e.Player + "'s Ghost"
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// rosterNames returns the connected-or-not seat names in join
+// order. Used by Round start to seed the controller's seat list
+// and the chain.Store's roster.
+func rosterNames(session *gamesession.GameSession) []string {
+	roster := session.Roster()
+	out := make([]string, 0, len(roster))
+	for _, p := range roster {
+		out = append(out, p.Name)
+	}
+	return out
 }
 
 // writePhaseSnapshot sends the per-Player state matching the
@@ -548,19 +755,14 @@ func (s *Server) writePhaseSnapshot(conn *websocket.Conn, session *gamesession.G
 	case gamesession.StateLobby:
 		return nil
 	case gamesession.StateRoundActive:
-		snap := room.drafts.Get(roundNum, name)
 		deadline, ok := room.controller.Deadline()
 		var deadlineMS *int64
 		if ok {
 			ms := deadline.UnixMilli()
 			deadlineMS = &ms
 		}
-		payload, err := json.Marshal(roundStateMsg{
-			Type:       "round-state",
-			DeadlineMS: deadlineMS,
-			DraftText:  snap.Text,
-			Submitted:  snap.Submitted,
-		})
+		msg := buildRoundStateMsg(room, roundNum, name, deadlineMS)
+		payload, err := json.Marshal(msg)
 		if err != nil {
 			return err
 		}
@@ -569,23 +771,28 @@ func (s *Server) writePhaseSnapshot(conn *websocket.Conn, session *gamesession.G
 		return conn.Write(ctx, websocket.MessageText, payload)
 	case gamesession.StateRoundComplete:
 		room.mu.Lock()
-		entries := append([]round.Entry(nil), room.lastEntries...)
+		entries := append([]chain.Entry(nil), room.lastEntries...)
 		room.mu.Unlock()
-		wireEntries := make([]roundEndedEntry, 0, len(entries))
-		for _, e := range entries {
-			w := roundEndedEntry{Player: e.Player, Text: e.Text, Ghost: e.Ghost}
-			if e.Ghost {
-				w.GhostLabel = e.Player + "'s Ghost"
-			}
-			wireEntries = append(wireEntries, w)
-		}
-		payload, err := json.Marshal(roundEndedMsg{Type: "round-ended", Entries: wireEntries})
+		payload, err := json.Marshal(roundEndedMsg{
+			Type:    "round-ended",
+			Entries: wireEntriesFromChain(entries),
+		})
 		if err != nil {
 			return err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), wsWriteTimeout)
 		defer cancel()
 		return conn.Write(ctx, websocket.MessageText, payload)
+	case gamesession.StateReveal:
+		// The reveal flow is not wired at this slice's scope. The
+		// reveal cursor is constructed up-front and lives on
+		// roomState ready for the next slice to drive it. For now
+		// a Reconnect during StateReveal returns no payload; the
+		// next slice will replace this with a unicast reveal-state.
+		_ = room.cursor()
+		return nil
+	case gamesession.StateEnded:
+		return nil
 	}
 	return nil
 }
@@ -610,6 +817,21 @@ func broadcastNotice(b *presence.Broadcaster, text string) {
 	b.Broadcast(payload)
 }
 
+// ChainStoreForCode returns the chain.Store managed by this
+// Server for the GameSession with the given canonical code, or
+// nil if no room has been created. Exposed for integration tests
+// that need to assert on Chain plumbing without driving the wire
+// format.
+func (s *Server) ChainStoreForCode(code string) *chain.Store {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.rooms[code]
+	if !ok {
+		return nil
+	}
+	return r.chains
+}
+
 // ensureRoom returns (and lazily creates) the room state for g.
 // On creation it spins up the per-session pump goroutine and the
 // Round controller with the OnEnd callback wired to the web
@@ -621,20 +843,30 @@ func (s *Server) ensureRoom(g *gamesession.GameSession) *roomState {
 		return r
 	}
 	drafts := draft.New()
+	strokeDrafts := strokes.New()
 	ghosts := ghost.New(time.Now().UnixNano())
+	chains := chain.New()
+	// The reveal cursor is constructed up-front with an empty
+	// chainLens slice so it is immediately in the "complete" state.
+	// A future slice will reseat it at the StateRoundComplete →
+	// StateReveal transition with the actual per-Chain lengths.
+	cursor := newRevealCursor(nil)
 	room := &roomState{
-		broadcaster: presence.New(),
-		drafts:      drafts,
-		ghosts:      ghosts,
+		broadcaster:  presence.New(),
+		drafts:       drafts,
+		strokeDrafts: strokeDrafts,
+		ghosts:       ghosts,
+		chains:       chains,
+		revealCursor: cursor,
 	}
 	// The controller's OnEnd callback closes over the GameSession +
-	// roomState so the round-ended broadcast and the session phase
-	// advance happen in one place.
+	// roomState so Entry assembly, chain plumbing, the round-ended
+	// broadcast, and the session phase advance all happen in one
+	// place. The controller itself no longer touches drafts or
+	// ghosts directly.
 	room.controller = round.New(round.Config{
-		Drafts: drafts,
-		Ghosts: ghosts,
-		OnEnd: func(roundNum int, entries []round.Entry, _ round.EndReason) {
-			s.onRoundEnd(g, room, roundNum, entries)
+		OnEnd: func(roundNum int, seats []string, _ round.EndReason) {
+			s.onRoundEnd(g, room, roundNum, seats)
 		},
 	})
 	s.rooms[g.Code()] = room

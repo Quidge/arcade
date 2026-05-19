@@ -79,6 +79,51 @@ func TestUnknownSlotKindReturnsGeneric(t *testing.T) {
 	}
 }
 
+func TestPickDrawingReturnsTriangle(t *testing.T) {
+	p := New(7)
+	got := p.Picker().PickDrawing("Alice")
+	if len(got) != 3 {
+		t.Fatalf("PickDrawing returned %d strokes, want 3 (triangle)", len(got))
+	}
+	// Each stroke has at least 2 points (a segment).
+	for i, s := range got {
+		if len(s) < 2 {
+			t.Errorf("stroke %d has %d points, want >= 2", i, len(s))
+		}
+		for j, pt := range s {
+			if pt.X < 0 || pt.X > 1 || pt.Y < 0 || pt.Y > 1 {
+				t.Errorf("stroke %d point %d = %+v out of normalized 0..1", i, j, pt)
+			}
+		}
+	}
+	// Triangle endpoints meet: each stroke's last point equals the
+	// next stroke's first point, and the third closes back to the
+	// first.
+	for i := 0; i < len(got); i++ {
+		end := got[i][len(got[i])-1]
+		start := got[(i+1)%len(got)][0]
+		if end != start {
+			t.Errorf("triangle vertex %d open: stroke %d end=%+v != stroke %d start=%+v",
+				i, i, end, (i+1)%len(got), start)
+		}
+	}
+}
+
+func TestPickDrawingIsDefensiveCopy(t *testing.T) {
+	p := New(0)
+	got := p.Picker().PickDrawing("Alice")
+	if len(got) == 0 {
+		t.Fatalf("expected non-empty triangle")
+	}
+	// Mutate the returned strokes — the next call must not see the
+	// mutation.
+	got[0][0].X = 99.0
+	got2 := p.Picker().PickDrawing("Bob")
+	if got2[0][0].X == 99.0 {
+		t.Errorf("PickDrawing leaked the library's storage")
+	}
+}
+
 func TestLibraryEntriesAreSingleSentencesIsh(t *testing.T) {
 	// Smoke-test the canned library to keep it on-spec — entries
 	// are short and don't carry trailing punctuation. Not a hard

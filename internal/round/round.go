@@ -1,27 +1,26 @@
 // Package round is the Round controller: it owns the state of one
 // in-progress Round (which seats are active, which have submitted,
-// when the timer expires) and drives Round-end finalization. The
+// when the timer expires) and fires a callback at Round-end. The
 // controller is a pure domain module — no I/O, no WebSocket, no
-// JSON. It cooperates with the Draft store and Ghost provider, both
-// passed in at construction.
+// JSON, no knowledge of Drafts or Ghosts. The caller assembles
+// Entries from the appropriate Draft store and the Ghost provider
+// inside its OnEnd callback.
 //
-// Round 0 (issue #8) only ever runs one Round at a time; the
-// controller's surface is shaped so subsequent slices that add
-// Rounds 1..N can drive successive Starts on the same instance
-// without rework.
+// Splitting the Drafts/Ghosts responsibilities out of Config makes
+// the controller reusable across Round types (text-Caption,
+// strokes-Drawing) without code changes: a Round 1 instance points
+// at a strokes Draft store from outside, exactly as Round 0 points
+// at a text Draft store.
 package round
 
 import (
 	"errors"
 	"sync"
 	"time"
-
-	"github.com/quidge/scribble/internal/draft"
-	"github.com/quidge/scribble/internal/ghost"
 )
 
-// ErrNoActiveRound is returned by Submit, ForceAdvance, and
-// Apply when no Round is currently running.
+// ErrNoActiveRound is returned by Submit, ForceAdvance when no
+// Round is currently running.
 var ErrNoActiveRound = errors.New("round: no active round")
 
 // ErrAlreadyActive is returned by Start when a Round is already
@@ -32,9 +31,7 @@ var ErrAlreadyActive = errors.New("round: a round is already active")
 // part of the active Round.
 var ErrUnknownSeat = errors.New("round: unknown seat for active round")
 
-// EndReason discriminates the three Round-end triggers. Consumers
-// may surface this in notices or wire payloads; the controller
-// itself treats them identically once any of them fires.
+// EndReason discriminates the three Round-end triggers.
 type EndReason int
 
 const (
@@ -47,32 +44,19 @@ const (
 	EndForceAdvanced
 )
 
-// Entry is one finalized contribution to a Chain at Round-end.
-// Text is the Draft (or canned Ghost content) and Ghost is true
-// when the slot was filled by the Ghost provider because the
-// Player's Draft was empty.
-type Entry struct {
-	Player string
-	Text   string
-	Ghost  bool
-}
+// EndCallback is invoked once per Round, after the controller has
+// released its lock and reset its in-flight state. The caller is
+// expected to assemble Entries from the appropriate Draft store
+// and Ghost provider for `seats` in the order given (which is the
+// same order as Start), then commit them to whatever Chain or
+// reveal accumulator it owns. The callback runs synchronously on
+// the goroutine that triggered the end — implementations should
+// be quick or hand work off to a goroutine.
+type EndCallback func(round int, seats []string, reason EndReason)
 
-// EndCallback is invoked once per Round, after finalization, with
-// the resolved Entries (one per seat, in seat order) and the
-// EndReason. The callback runs synchronously inside the controller
-// — implementations should be quick or hand work off to a
-// goroutine.
-type EndCallback func(round int, entries []Entry, reason EndReason)
-
-// Config wires the controller to its collaborators.
+// Config wires the controller to its environment.
 type Config struct {
-	// Drafts is the Draft store the controller reads at
-	// finalization to extract each seat's text.
-	Drafts *draft.Store
-	// Ghosts is the Ghost provider used to fill empty slots.
-	Ghosts *ghost.Provider
-	// OnEnd is invoked once at Round-end with the resolved
-	// Entries. Required.
+	// OnEnd is invoked once at Round-end. Required.
 	OnEnd EndCallback
 	// Now optionally overrides the controller's wall-clock source.
 	// Tests inject a fake clock; production passes nil to use
@@ -96,8 +80,7 @@ type Controller struct {
 	timerGen  uint64
 }
 
-// New constructs a Controller. cfg.Drafts, cfg.Ghosts, and cfg.OnEnd
-// must be non-nil.
+// New constructs a Controller. cfg.OnEnd must be non-nil.
 func New(cfg Config) *Controller {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -186,6 +169,11 @@ func (c *Controller) Submitted(player string) bool {
 // every seat to be submitted, the Round ends with EndAllSubmitted.
 // A second Submit for the same player is a no-op (idempotent).
 // Returns ErrNoActiveRound or ErrUnknownSeat for invalid calls.
+//
+// Note: the controller no longer touches any Draft store. Callers
+// (the web layer) are expected to seal the appropriate Draft for
+// (round, player) *before* calling Submit so the snapshot taken
+// inside OnEnd matches what the seat last sent.
 func (c *Controller) Submit(player string) error {
 	c.mu.Lock()
 	if !c.active {
@@ -200,10 +188,6 @@ func (c *Controller) Submit(player string) error {
 		c.mu.Unlock()
 		return nil
 	}
-	// Seal the Draft store entry — this snapshots the buffer
-	// under the store's lock and rejects any further Apply for
-	// this (round, player).
-	_, _ = c.cfg.Drafts.Submit(c.round, player)
 	c.submitted[player] = true
 	allDone := len(c.submitted) == len(c.seats)
 	if !allDone {
@@ -258,33 +242,5 @@ func (c *Controller) endAndUnlock(reason EndReason) {
 	c.deadline = time.Time{}
 	c.timerSet = false
 	c.mu.Unlock()
-	entries := c.finalize(roundNum, seats)
-	c.cfg.OnEnd(roundNum, entries, reason)
-}
-
-// finalize collects the Entry list for the Round identified by
-// roundNum. Each seat with a non-empty Draft contributes its text
-// as-is (ADR 0003, "any input at all ships as-is"); each seat with
-// an empty Draft gets a Ghost-supplied Entry. Best-effort anti-
-// collision is scoped to this Round-end via a single Picker.
-func (c *Controller) finalize(roundNum int, seats []string) []Entry {
-	out := make([]Entry, 0, len(seats))
-	picker := c.cfg.Ghosts.Picker()
-	for _, name := range seats {
-		snap := c.cfg.Drafts.Get(roundNum, name)
-		if snap.Text == "" {
-			out = append(out, Entry{
-				Player: name,
-				Text:   picker.Pick(name, ghost.StarterCaption),
-				Ghost:  true,
-			})
-			continue
-		}
-		out = append(out, Entry{
-			Player: name,
-			Text:   snap.Text,
-			Ghost:  false,
-		})
-	}
-	return out
+	c.cfg.OnEnd(roundNum, seats, reason)
 }

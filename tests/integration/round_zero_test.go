@@ -14,20 +14,32 @@ import (
 )
 
 // roundStateMsg mirrors the server → client envelope for the
-// active-Round state push. DeadlineMS is a pointer so the test
-// can distinguish a present-but-null deadline (timer off) from a
-// real epoch-ms value.
+// active-Round state push. The envelope is the polymorphic shape
+// introduced by issue #28: a content_kind discriminator, a nullable
+// prompt, and a nested draft payload whose `kind` selects between
+// {text} (Round 0) and {strokes} (future Round types).
 type roundStateMsg struct {
-	Type       string `json:"type"`
-	DeadlineMS *int64 `json:"deadline_ms"`
-	DraftText  string `json:"draft_text"`
-	Submitted  bool   `json:"submitted"`
+	Type        string `json:"type"`
+	Round       int    `json:"round"`
+	DeadlineMS  *int64 `json:"deadline_ms"`
+	ContentKind string `json:"content_kind"`
+	Prompt      *struct {
+		Kind string `json:"kind"`
+		Text string `json:"text,omitempty"`
+	} `json:"prompt"`
+	Draft struct {
+		Kind string `json:"kind"`
+		Text string `json:"text,omitempty"`
+	} `json:"draft"`
+	Submitted bool `json:"submitted"`
 }
 
-// roundEndedEntry mirrors the on-wire entry in round-ended.
+// roundEndedEntry mirrors the on-wire entry in round-ended. Round
+// 0 only ever emits Caption entries (Kind="caption").
 type roundEndedEntry struct {
 	Player     string `json:"player"`
-	Text       string `json:"text"`
+	Kind       string `json:"kind"`
+	Text       string `json:"text,omitempty"`
 	Ghost      bool   `json:"ghost"`
 	GhostLabel string `json:"ghost_label,omitempty"`
 }
@@ -108,8 +120,17 @@ func TestRoundZeroAllSubmitted(t *testing.T) {
 	if rs.DeadlineMS == nil || *rs.DeadlineMS == 0 {
 		t.Errorf("alice round-state deadline_ms = %+v", rs.DeadlineMS)
 	}
-	if rs.DraftText != "" || rs.Submitted {
-		t.Errorf("alice round-state should be empty + unsubmitted: %+v", rs)
+	if rs.Draft.Kind != "text" || rs.Draft.Text != "" || rs.Submitted {
+		t.Errorf("alice round-state should be empty text + unsubmitted: %+v", rs)
+	}
+	if rs.ContentKind != "caption" {
+		t.Errorf("alice round-state content_kind = %q want \"caption\"", rs.ContentKind)
+	}
+	if rs.Prompt != nil {
+		t.Errorf("alice round-state prompt should be null for Round 0, got %+v", rs.Prompt)
+	}
+	if rs.Round != 0 {
+		t.Errorf("alice round-state round = %d want 0", rs.Round)
 	}
 	_ = bobRS // shape already validated by Unmarshal in readUntilType path
 
@@ -144,30 +165,25 @@ func TestRoundZeroTimerExpiryWithAFKGhost(t *testing.T) {
 	drainToRosterSize(t, alice, 1)
 	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
-	carol, _ := dialAs(t, srv, code, "Carol")
-	defer carol.CloseNow()
-	drainToRosterSize(t, alice, 3)
-	drainToRosterSize(t, bob, 3)
-	drainToRosterSize(t, carol, 3)
+	drainToRosterSize(t, alice, 2)
+	drainToRosterSize(t, bob, 2)
 
 	// 1-second timer — short enough to keep the test snappy, long
-	// enough to type a couple of drafts.
+	// enough for Alice to type. Bob is the AFK player.
 	t1 := 1
 	startRound(t, alice, &t1)
 	_ = readUntilType(t, alice, "round-state")
 	_ = readUntilType(t, bob, "round-state")
-	_ = readUntilType(t, carol, "round-state")
 
 	sendCmd(t, alice, map[string]any{"type": "draft", "text": "alice typed"})
-	sendCmd(t, bob, map[string]any{"type": "draft", "text": "bob typed"})
-	// Carol never types — she's the AFK player.
+	// Bob never types — he's the AFK player.
 
 	end := readUntilType(t, alice, "round-ended")
 	var re roundEndedMsg
 	if err := json.Unmarshal(end, &re); err != nil {
 		t.Fatalf("round-ended: %v", err)
 	}
-	if len(re.Entries) != 3 {
+	if len(re.Entries) != 2 {
 		t.Fatalf("entries = %+v", re.Entries)
 	}
 	for _, e := range re.Entries {
@@ -180,21 +196,14 @@ func TestRoundZeroTimerExpiryWithAFKGhost(t *testing.T) {
 				t.Errorf("Alice entry text = %q", e.Text)
 			}
 		case "Bob":
-			if e.Ghost {
-				t.Errorf("Bob ghost-filled despite typing: %+v", e)
-			}
-			if e.Text != "bob typed" {
-				t.Errorf("Bob entry text = %q", e.Text)
-			}
-		case "Carol":
 			if !e.Ghost {
-				t.Errorf("Carol AFK entry not Ghost: %+v", e)
+				t.Errorf("Bob AFK entry not Ghost: %+v", e)
 			}
-			if e.GhostLabel != "Carol's Ghost" {
-				t.Errorf("Carol Ghost label = %q want %q", e.GhostLabel, "Carol's Ghost")
+			if e.GhostLabel != "Bob's Ghost" {
+				t.Errorf("Bob Ghost label = %q want %q", e.GhostLabel, "Bob's Ghost")
 			}
 			if e.Text == "" {
-				t.Errorf("Carol Ghost text empty")
+				t.Errorf("Bob Ghost text empty")
 			}
 		}
 	}
@@ -279,8 +288,8 @@ func TestRoundZeroDraftSurvivesDisconnectReconnect(t *testing.T) {
 	if err := json.Unmarshal(rsPayload, &rs); err != nil {
 		t.Fatalf("bob2 round-state: %v", err)
 	}
-	if rs.DraftText != "halfway through a sent" {
-		t.Errorf("draft after reconnect = %q want %q", rs.DraftText, "halfway through a sent")
+	if rs.Draft.Text != "halfway through a sent" {
+		t.Errorf("draft after reconnect = %q want %q", rs.Draft.Text, "halfway through a sent")
 	}
 	if rs.Submitted {
 		t.Errorf("draft after reconnect: Submitted=true unexpected")
