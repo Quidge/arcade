@@ -14,7 +14,10 @@ package ghost
 
 import (
 	"math/rand"
+	"strconv"
 	"sync"
+
+	"github.com/quidge/scribble/internal/strokes"
 )
 
 // SlotKind discriminates the Entry shape a Ghost is being asked
@@ -61,6 +64,22 @@ var starterCaptionLibrary = []string{
 // library.
 const genericFallback = "(ghost — content coming soon)"
 
+// drawingLibrary holds canned Drawings the Ghost can hand out for
+// Drawing slots. MVP ships a single entry — a triangle whose three
+// strokes meet at three vertices in normalized 0..1 coordinates.
+// Anti-collision structure is preserved (a Picker tracks "used"
+// per-Round) but is vacuous at library size 1.
+var drawingLibrary = [][]strokes.Stroke{
+	{
+		// Top vertex (0.5, 0.15) → bottom-right vertex (0.85, 0.85).
+		{{X: 0.50, Y: 0.15}, {X: 0.85, Y: 0.85}},
+		// Bottom-right (0.85, 0.85) → bottom-left (0.15, 0.85).
+		{{X: 0.85, Y: 0.85}, {X: 0.15, Y: 0.85}},
+		// Bottom-left (0.15, 0.85) → top (0.50, 0.15).
+		{{X: 0.15, Y: 0.85}, {X: 0.50, Y: 0.15}},
+	},
+}
+
 // Provider hands out canned Entries on behalf of absent Players.
 // The zero value is not usable; obtain one via New.
 type Provider struct {
@@ -87,6 +106,48 @@ type Picker struct {
 // Picker per Round-end and call Pick once per absent Player.
 func (p *Provider) Picker() *Picker {
 	return &Picker{provider: p, used: map[string]struct{}{}}
+}
+
+// PickDrawing returns a canned Ghost Drawing for player. It draws
+// from drawingLibrary using the same best-effort anti-collision
+// pattern as Pick (track which entries have been handed out by
+// this Picker; fall back to a random repeat if the library is
+// exhausted). At MVP scale the library holds a single triangle so
+// every call returns the same Drawing — the anti-collision
+// scaffolding is preserved for when the library grows.
+func (p *Picker) PickDrawing(player string) []strokes.Stroke {
+	if len(drawingLibrary) == 0 {
+		return nil
+	}
+	p.provider.mu.Lock()
+	defer p.provider.mu.Unlock()
+	start := p.provider.rng.Intn(len(drawingLibrary))
+	for off := 0; off < len(drawingLibrary); off++ {
+		idx := (start + off) % len(drawingLibrary)
+		key := drawingKey(idx)
+		if _, taken := p.used[key]; !taken {
+			p.used[key] = struct{}{}
+			return cloneStrokes(drawingLibrary[idx])
+		}
+	}
+	return cloneStrokes(drawingLibrary[start])
+}
+
+func drawingKey(idx int) string {
+	// A namespaced key so Pick (captions) and PickDrawing can share
+	// the same `used` set without colliding with caption strings.
+	return "drawing:" + strconv.Itoa(idx)
+}
+
+func cloneStrokes(src []strokes.Stroke) []strokes.Stroke {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]strokes.Stroke, len(src))
+	for i, s := range src {
+		out[i] = append(strokes.Stroke(nil), s...)
+	}
+	return out
 }
 
 // Pick returns a Ghost Entry for (player, kind). It first attempts

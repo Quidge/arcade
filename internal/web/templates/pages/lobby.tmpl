@@ -480,7 +480,11 @@
 		hostControls.classList.add("hidden");
 		roundPanel.classList.remove("hidden");
 		roundCompletePanel.classList.add("hidden");
-		roundInput.value = msg.draft_text || "";
+		var draftText = "";
+		if (msg.draft && typeof msg.draft.text === "string") {
+			draftText = msg.draft.text;
+		}
+		roundInput.value = draftText;
 		if (submitted) {
 			roundInput.disabled = true;
 			roundSubmitBtn.disabled = true;

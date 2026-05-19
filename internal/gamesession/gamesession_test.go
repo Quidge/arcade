@@ -344,7 +344,7 @@ func TestJoinOrderStableAcrossDisconnectReconnect(t *testing.T) {
 	_, stop := startBackgroundDrain(g)
 	defer stop()
 
-	names := []string{"Alice", "Bob", "Carol", "Dave"}
+	names := []string{"Alice", "Bob"}
 	for _, n := range names {
 		if _, err := g.Join(n); err != nil {
 			t.Fatalf("Join(%q): %v", n, err)
@@ -406,7 +406,7 @@ func TestRosterReturnsJoinOrder(t *testing.T) {
 	_, stop := startBackgroundDrain(g)
 	defer stop()
 
-	names := []string{"Alice", "Bob", "Carol", "Dave"}
+	names := []string{"Alice", "Bob"}
 	for _, n := range names {
 		if _, err := g.Join(n); err != nil {
 			t.Fatalf("Join(%q): %v", n, err)
@@ -507,7 +507,7 @@ func TestLeaveUnseatedReturnsErrNotSeated(t *testing.T) {
 func TestLeaveByHostMigratesHost(t *testing.T) {
 	r := NewRegistry()
 	g := r.Create()
-	seedPlayers(t, g, "Alice", "Bob", "Carol")
+	seedPlayers(t, g, "Alice", "Bob")
 	// Alice (Host) leaves.
 	go func() {
 		time.Sleep(5 * time.Millisecond)
@@ -553,19 +553,19 @@ func TestLeaveByNonHostDoesNotEmitHostChanged(t *testing.T) {
 func TestTransferHostMovesBadge(t *testing.T) {
 	r := NewRegistry()
 	g := r.Create()
-	seedPlayers(t, g, "Alice", "Bob", "Carol")
+	seedPlayers(t, g, "Alice", "Bob")
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		if err := g.TransferHost("Alice", "Carol"); err != nil {
+		if err := g.TransferHost("Alice", "Bob"); err != nil {
 			t.Errorf("TransferHost: %v", err)
 		}
 	}()
 	e := expectEvent(t, g)
-	if e.Kind != HostChanged || e.Player.Name != "Carol" {
-		t.Errorf("event = %+v want HostChanged Carol", e)
+	if e.Kind != HostChanged || e.Player.Name != "Bob" {
+		t.Errorf("event = %+v want HostChanged Bob", e)
 	}
-	if got := hostName(g); got != "Carol" {
-		t.Errorf("Host after transfer = %q want Carol", got)
+	if got := hostName(g); got != "Bob" {
+		t.Errorf("Host after transfer = %q want Bob", got)
 	}
 }
 
@@ -717,46 +717,18 @@ func TestHostReconnectAfterGraceDoesNotReclaim(t *testing.T) {
 }
 
 func TestGraceSkipsDisconnectedNextInOrder(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		r := NewRegistry()
-		g := r.Create()
-		seedPlayers(t, g, "Alice", "Bob", "Carol")
-
-		_, stop := startBackgroundDrain(g)
-		defer stop()
-		// Bob is disconnected before Alice's grace fires; Carol
-		// should inherit Host.
-		g.Disconnect("Bob")
-		g.Disconnect("Alice")
-		time.Sleep(DefaultHostGraceDuration + time.Second)
-		synctest.Wait()
-		if got := hostName(g); got != "Carol" {
-			t.Errorf("Host after grace with Bob disconnected = %q want Carol", got)
-		}
-	})
+	// Requires N>=3 (skip the disconnected next, promote the one
+	// further down). With MaxPlayers temporarily clamped to 2,
+	// there is no "next in order" to skip past. Re-enable when the
+	// generalization slice unclamps the cap.
+	t.Skip("requires N>=3; MaxPlayers temporarily clamped to 2")
 }
 
 func TestRecursiveAutoMigrateWhenNewHostDisconnects(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		r := NewRegistry()
-		g := r.Create()
-		seedPlayers(t, g, "Alice", "Bob", "Carol")
-
-		_, stop := startBackgroundDrain(g)
-		defer stop()
-		g.Disconnect("Alice")
-		time.Sleep(DefaultHostGraceDuration + time.Second) // Alice → Bob.
-		synctest.Wait()
-		if got := hostName(g); got != "Bob" {
-			t.Fatalf("after first grace: Host = %q want Bob", got)
-		}
-		g.Disconnect("Bob")
-		time.Sleep(DefaultHostGraceDuration + time.Second) // Bob → Carol.
-		synctest.Wait()
-		if got := hostName(g); got != "Carol" {
-			t.Errorf("after second grace: Host = %q want Carol", got)
-		}
-	})
+	// Requires N>=3: Alice → Bob → Carol after two grace expiries.
+	// With MaxPlayers temporarily clamped to 2 there is no Carol
+	// to migrate to. Re-enable when the cap is lifted.
+	t.Skip("requires N>=3; MaxPlayers temporarily clamped to 2")
 }
 
 func TestNonHostDisconnectDoesNotStartGrace(t *testing.T) {
@@ -894,6 +866,214 @@ func TestLeavePostStartCollapsesToDisconnect(t *testing.T) {
 	}
 	if !sawBob {
 		t.Errorf("Bob seat removed post-Start Leave (should persist per ADR 0009)")
+	}
+}
+
+// Phase-transition tests for the new states added by issue #28:
+// BeginRound (StateRoundComplete → StateRoundActive for Rounds
+// 1..N-1), BeginReveal (StateRoundComplete → StateReveal), and
+// End (any → StateEnded).
+
+func TestBeginRoundRequiresHost(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := g.AdvanceFromRound(); err != nil {
+		t.Fatalf("AdvanceFromRound: %v", err)
+	}
+	if err := g.BeginRound("Bob", 1); !errors.Is(err, ErrNotHost) {
+		t.Errorf("BeginRound by non-Host: err=%v want ErrNotHost", err)
+	}
+}
+
+func TestBeginRoundFromWrongPhaseRejected(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	// In lobby: rejected.
+	if err := g.BeginRound("Alice", 1); !errors.Is(err, ErrInvalidPhase) {
+		t.Errorf("BeginRound from lobby: err=%v want ErrInvalidPhase", err)
+	}
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// In RoundActive: rejected.
+	if err := g.BeginRound("Alice", 1); !errors.Is(err, ErrInvalidPhase) {
+		t.Errorf("BeginRound from RoundActive: err=%v want ErrInvalidPhase", err)
+	}
+}
+
+func TestBeginRoundTransitions(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := g.AdvanceFromRound(); err != nil {
+		t.Fatalf("AdvanceFromRound: %v", err)
+	}
+	if err := g.BeginRound("Alice", 1); err != nil {
+		t.Fatalf("BeginRound: %v", err)
+	}
+	st, round := g.Phase()
+	if st != StateRoundActive {
+		t.Errorf("phase after BeginRound = %v want StateRoundActive", st)
+	}
+	if round != 1 {
+		t.Errorf("round after BeginRound = %d want 1", round)
+	}
+}
+
+func TestBeginRevealRequiresHost(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := g.AdvanceFromRound(); err != nil {
+		t.Fatalf("AdvanceFromRound: %v", err)
+	}
+	if err := g.BeginReveal("Bob"); !errors.Is(err, ErrNotHost) {
+		t.Errorf("BeginReveal by non-Host: err=%v want ErrNotHost", err)
+	}
+}
+
+func TestBeginRevealTransitions(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := g.AdvanceFromRound(); err != nil {
+		t.Fatalf("AdvanceFromRound: %v", err)
+	}
+	if err := g.BeginReveal("Alice"); err != nil {
+		t.Fatalf("BeginReveal: %v", err)
+	}
+	st, _ := g.Phase()
+	if st != StateReveal {
+		t.Errorf("phase after BeginReveal = %v want StateReveal", st)
+	}
+}
+
+func TestEndRequiresHost(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.End("Bob"); !errors.Is(err, ErrNotHost) {
+		t.Errorf("End by non-Host: err=%v want ErrNotHost", err)
+	}
+}
+
+func TestEndFromAnyPhaseTransitionsToEnded(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(g *GameSession)
+	}{
+		{"lobby", func(g *GameSession) {}},
+		{"round-active", func(g *GameSession) { _ = g.Start("Alice") }},
+		{"round-complete", func(g *GameSession) {
+			_ = g.Start("Alice")
+			_ = g.AdvanceFromRound()
+		}},
+		{"reveal", func(g *GameSession) {
+			_ = g.Start("Alice")
+			_ = g.AdvanceFromRound()
+			_ = g.BeginReveal("Alice")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := NewRegistry()
+			g := r.Create()
+			seedPlayers(t, g, "Alice", "Bob")
+			tc.setup(g)
+			if err := g.End("Alice"); err != nil {
+				t.Fatalf("End: %v", err)
+			}
+			st, _ := g.Phase()
+			if st != StateEnded {
+				t.Errorf("phase after End = %v want StateEnded", st)
+			}
+		})
+	}
+}
+
+func TestEndFromEndedRejected(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.End("Alice"); err != nil {
+		t.Fatalf("first End: %v", err)
+	}
+	if err := g.End("Alice"); !errors.Is(err, ErrInvalidPhase) {
+		t.Errorf("second End: err=%v want ErrInvalidPhase", err)
+	}
+}
+
+func TestThirdJoinExceedsCap(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if _, err := g.Join("Carol"); !errors.Is(err, ErrCapExceeded) {
+		t.Errorf("third Join: err=%v want ErrCapExceeded", err)
+	}
+}
+
+func TestLeaveDuringRevealCollapsesToDisconnect(t *testing.T) {
+	// ADR 0009 — post-Lobby Leave collapses to Disconnect across all
+	// non-lobby states. Verify for StateReveal.
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	_ = g.Start("Alice")
+	_ = g.AdvanceFromRound()
+	_ = g.BeginReveal("Alice")
+	_, stop := startBackgroundDrain(g)
+	defer stop()
+	if err := g.Leave("Bob"); err != nil {
+		t.Fatalf("Leave Bob during reveal: %v", err)
+	}
+	var sawBob bool
+	for _, p := range g.Roster() {
+		if p.Name == "Bob" {
+			sawBob = true
+			if p.Connected {
+				t.Errorf("Bob should be Connected=false after reveal-time Leave: %+v", p)
+			}
+		}
+	}
+	if !sawBob {
+		t.Errorf("Bob seat removed during reveal — ADR 0009 violated")
+	}
+}
+
+func TestLeaveDuringEndedCollapsesToDisconnect(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	_ = g.End("Alice")
+	_, stop := startBackgroundDrain(g)
+	defer stop()
+	if err := g.Leave("Bob"); err != nil {
+		t.Fatalf("Leave Bob post-End: %v", err)
+	}
+	var sawBob bool
+	for _, p := range g.Roster() {
+		if p.Name == "Bob" {
+			sawBob = true
+			if p.Connected {
+				t.Errorf("Bob should be Connected=false post-End Leave: %+v", p)
+			}
+		}
+	}
+	if !sawBob {
+		t.Errorf("Bob seat removed post-End — ADR 0009 violated")
 	}
 }
 
