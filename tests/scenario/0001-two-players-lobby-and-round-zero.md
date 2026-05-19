@@ -166,6 +166,102 @@ Host, Bob connected) and exercise the Host-management slice
     is no grace wait for a voluntary Leave. The notice reads
     "Bob left the game — Alice is now the Host."
 
+## Round 0 — starter Captions
+
+These steps continue from a normal two-player lobby with Alice as
+Host and Bob connected. They exercise the Round-0 slice (issue
+#8 / ADR 0003 / ADR 0009).
+
+24. **Alice (Host):** In her lobby Players panel sees, alongside
+    the per-row Make-Host / Kick affordances, a Host-only block at
+    the bottom with a "Round timer" dropdown (defaulted to 60 s)
+    and a "Start" button. Bob does not see these controls.
+
+25. **Alice:** Changes the Round timer dropdown to 30 s. No
+    visible change yet — the choice is held server-side until
+    Start.
+
+26. **Alice:** Clicks "Start."
+    Expected: both Alice's and Bob's screens transition from the
+    lobby Players + Host-controls layout to a Round-0 panel
+    titled "Round 0 — Starter Caption" with the prompt "Invent
+    the first Caption for your Chain" and the hint "One sentence.
+    Anything goes." A textarea is focused on each player's screen
+    and a countdown reading "Time left: 0:30" begins ticking
+    down, synchronized between the two browsers (both show the
+    same remaining seconds within one tick). Alice additionally
+    sees a small Host-only "Force advance" button next to the
+    Submit button; Bob does not.
+
+27. **Alice and Bob:** Each types their starter Caption a few
+    characters at a time, watching the textarea on their own
+    screen. Each keystroke is silently streamed to the server.
+    Neither sees the other's text on their own screen — Drafts
+    are per-Player.
+
+28. **Alice:** Clicks "Submit."
+    Expected: Alice's textarea grays out and locks; the "Submit"
+    button disables; a "Submitted — waiting for others…" banner
+    appears above the countdown. Bob sees no change — submission
+    status is not broadcast in this MVP.
+
+29. **Bob:** Lets the countdown reach 0 without submitting.
+    Expected: at deadline, both browsers swap from the Round-0
+    panel to a "Round 0 complete" panel reading "More game flow
+    coming soon." Bob's typed Draft was shipped as his Entry
+    automatically (any input ships per ADR 0003) — there is no
+    visible Entry list in this slice, but his Caption is held
+    server-side for the reveal slice.
+
+## Round 0 — Disconnect and Ghost edge cases
+
+These steps reset to a fresh two-player lobby (Alice as Host, Bob
+connected) and exercise the protocol's resilience.
+
+30. **Alice (Host):** Sets the timer to 60 s and clicks Start.
+    Both screens transition to Round 0 with a 1:00 countdown.
+
+31. **Bob:** Types a partial Caption ("the cat is on") and
+    closes his tab.
+    Expected: Alice's screen continues showing the countdown.
+    Bob's seat in the underlying domain still has his partial
+    Draft preserved server-side; the lobby roster (if shown)
+    would mark Bob disconnected.
+
+32. **Bob:** Reopens `/g/<code>` and types his name again to
+    Reconnect.
+    Expected: the Round-0 panel appears immediately with his
+    countdown matching Alice's (the same `deadline_ms`), and his
+    textarea is pre-filled with "the cat is on" — the partial
+    Draft restored from the server. He can continue typing where
+    he left off.
+
+33. **Bob:** Finishes the sentence ("the cat is on the mat") and
+    clicks Submit. Alice waits.
+
+34. **Alice:** Lets the timer run out (Alice has typed nothing).
+    Expected: at deadline, both screens swap to "Round 0
+    complete." Alice's slot is filled by her Ghost — visibly
+    labeled "Alice's Ghost" in any subsequent UI exposing the
+    finalized Entries.
+
+35. **Reset, then Host force-advance scenario:** Set up a fresh
+    Round 0 with timer 60 s. Bob types a couple of words; Alice
+    has typed nothing. Alice clicks "Force advance."
+    Expected: both screens transition immediately to "Round 0
+    complete." Bob's typed words ship as his Entry (per ADR
+    0003); Alice's slot is Ghost-filled.
+
+36. **Reset, then Leave mid-Round:** Set up a fresh Round 0
+    with timer 60 s. Bob clicks "Leave game" mid-typing. Per ADR
+    0009, his seat is *not* removed; instead his connection
+    drops (his tab returns to name entry) and his row in Alice's
+    roster — if shown — would be marked disconnected. Bob's
+    Draft up to that moment is preserved server-side, and at
+    Round-end (Alice force-advances or the timer expires) Bob's
+    Entry is either his partial text or a Ghost depending on
+    whether he had typed anything before pressing Leave.
+
 ## Failure modes to verify by hand
 
 - **Unknown code:** visiting `/g/Z9Z-Z9Z` (well-formed but never

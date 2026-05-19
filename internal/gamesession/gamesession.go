@@ -61,6 +61,31 @@ var ErrNotHost = errors.New("gamesession: caller is not the Host")
 // ErrSelfTransfer is returned by TransferHost when from == target.
 var ErrSelfTransfer = errors.New("gamesession: cannot transfer Host to self")
 
+// ErrInvalidPhase is returned by Start when the GameSession is not
+// in the lobby, or by AdvanceFromRound when no Round is active.
+var ErrInvalidPhase = errors.New("gamesession: action not valid in current phase")
+
+// State discriminates the GameSession's coarse phase. Started at
+// StateLobby; transitions one-way via Start (→ StateRoundActive)
+// and AdvanceFromRound (→ StateRoundComplete). Future slices will
+// transition StateRoundComplete back to a new StateRoundActive for
+// Rounds 1..N.
+type State int
+
+const (
+	// StateLobby is the pre-Start phase. Seats can be created or
+	// removed via Join/Leave; Host may set the Round timer; the
+	// Round controller is dormant.
+	StateLobby State = iota
+	// StateRoundActive means a Round is in progress. Per ADR 0009,
+	// Leave and Kick during this phase collapse to Disconnect.
+	StateRoundActive
+	// StateRoundComplete is the post-finalization phase for the
+	// current Round, before the next Round (or reveal) begins.
+	// Issue #8 ends here pending multi-Round slices.
+	StateRoundComplete
+)
+
 // Player is the public roster entry. Host is true for the seat that
 // currently holds the host badge (at most one at a time). Connected
 // is true while a live WebSocket is bound to the seat.
@@ -118,6 +143,12 @@ type GameSession struct {
 	players map[string]Player
 	order   []string // join order; stable across Disconnect/Reconnect
 
+	// state is the current coarse phase. Guarded by mu.
+	state State
+	// roundNum is the active Round number when state is
+	// StateRoundActive or StateRoundComplete. Zero in StateLobby.
+	roundNum int
+
 	// hostGraceDuration is copied from the Registry at Create time.
 	hostGraceDuration time.Duration
 	// hostGraceTimer is the live grace timer for the current Host,
@@ -133,6 +164,59 @@ type GameSession struct {
 // Code returns the canonical 6-character join code for this
 // GameSession.
 func (g *GameSession) Code() string { return g.code }
+
+// Phase returns the current State and active Round number. The
+// Round number is meaningful only in StateRoundActive and
+// StateRoundComplete; in StateLobby it is zero.
+func (g *GameSession) Phase() (State, int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.state, g.roundNum
+}
+
+// Start transitions the GameSession from StateLobby into Round 0
+// (StateRoundActive). caller must be the current Host. Returns
+// ErrNotHost if the caller is not the Host, or ErrInvalidPhase if
+// the GameSession is not in the lobby. The timer duration is held
+// outside this domain (the Round controller owns it); Start carries
+// it here only as a forward-compatibility hook for tests/callers
+// that want to validate phase + Host atomically.
+//
+// On success, no Event is emitted on the session's channel —
+// callers wire the Round controller separately to broadcast the
+// round-start payload.
+func (g *GameSession) Start(caller string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.state != StateLobby {
+		return ErrInvalidPhase
+	}
+	if g.currentHostLocked() != caller {
+		return ErrNotHost
+	}
+	g.state = StateRoundActive
+	g.roundNum = 0
+	return nil
+}
+
+// AdvanceFromRound transitions the GameSession out of an active
+// Round. Round 0's terminal target is StateRoundComplete; future
+// slices will retarget this to the next StateRoundActive.
+// Returns ErrInvalidPhase if no Round is active.
+//
+// Callers (the web layer) invoke this from the Round controller's
+// OnEnd callback, after the Round has been finalized — the rule
+// "no Round-end trigger has fired" maps directly to "state was not
+// StateRoundActive when AdvanceFromRound was called."
+func (g *GameSession) AdvanceFromRound() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.state != StateRoundActive {
+		return ErrInvalidPhase
+	}
+	g.state = StateRoundComplete
+	return nil
+}
 
 // Events returns the read end of the event channel. The channel
 // is lightly buffered (enough to hold the back-to-back emits of a
@@ -277,18 +361,42 @@ func (g *GameSession) Disconnect(name string) {
 	g.emit(Event{Kind: PlayerDisconnected, Player: p, Roster: snapshot})
 }
 
-// Leave removes the named seat from the GameSession. The seat's
-// display name is freed and its slot is returned to the cap. If
-// the leaving seat held the Host badge, the badge is cleared and
-// the promotion engine selects a new Host (skipping currently-
-// disconnected seats per ADR 0005); HostChanged fires in addition
-// to PlayerLeft. Returns ErrNotSeated if no such seat exists.
+// Leave removes the named seat from the GameSession in the lobby
+// phase. Post-Start (per ADR 0009), Leave collapses to Disconnect:
+// the seat persists, Connected flips to false, and the existing
+// Disconnect path (including Host-grace migration if the leaver
+// was Host) takes over. PlayerLeft fires only in the lobby case.
+//
+// In the lobby, if the leaving seat held the Host badge, the
+// promotion engine selects a new Host (skipping currently-
+// disconnected seats per ADR 0005) and HostChanged fires in
+// addition to PlayerLeft. Returns ErrNotSeated if no such seat
+// exists.
 func (g *GameSession) Leave(name string) error {
 	g.mu.Lock()
 	seat, ok := g.players[name]
 	if !ok {
 		g.mu.Unlock()
 		return ErrNotSeated
+	}
+	// Post-Start: collapse to Disconnect per ADR 0009. The seat
+	// stays, Connected flips, Ghost picks up empty Drafts at
+	// Round-end. Already-disconnected seats are a no-op (matches
+	// Disconnect's existing semantics).
+	if g.state != StateLobby {
+		if !seat.Connected {
+			g.mu.Unlock()
+			return nil
+		}
+		seat.Connected = false
+		g.players[name] = seat
+		if seat.Host {
+			g.startHostGraceLocked(name)
+		}
+		snapshot := g.rosterLocked()
+		g.mu.Unlock()
+		g.emit(Event{Kind: PlayerDisconnected, Player: seat, Roster: snapshot})
+		return nil
 	}
 	wasHost := seat.Host
 

@@ -58,6 +58,15 @@ A Player's live WebSocket connection ends. The seat persists with its Host statu
 **Leave**:
 A Player's seat is removed from the GameSession. In the lobby, triggered by a Host kick, a voluntary "leave game" action, or the GameSession ending — frees the display name and the slot toward the 8-Player cap, distinct from Disconnect. Once the GameSession has started, Leave and Kick no longer remove the seat: they collapse into the same Disconnected state as a connection drop (seat persists, Connected flips to false, Ghost fills any missing Entries, Host drives the absent starter's reveal). The only seat-removal path post-Start is the GameSession ending. See ADR 0009.
 
+**Start**:
+The Host transitions the GameSession from the lobby into its first Round. One-way: once Started, a GameSession cannot return to the lobby. The Host's selected Round timer (15–120s in 15s increments, or off) is sealed at Start time and applies to every Round.
+
+**Submit**:
+A Player explicitly finalizes their Draft as their Entry for the current Round. One-way — a submitted Draft cannot be edited or un-submitted. A Player who submits and then Disconnects stays submitted; their Entry is the snapshot taken at submit time. Submitting does not, on its own, end the Round: the Round ends only when every seat has submitted, the timer expires, or the Host force-advances.
+
+**Force advance**:
+The Host ends the current Round early, before all seats have submitted and before the timer (if any) expires. Available only while a Round is active and only to the Host. Round-end finalization follows the same rules as the other triggers (non-empty Drafts ship as Entries; empty Drafts are filled by Ghosts) — Force advance is a low-friction tool, not a separate state.
+
 ## Relationships
 
 - A **GameSession** has 2 to 8 **Players** (the floor of 2 is preserved for testing and small-group hobby use; the board game is typically more fun with 4+)
