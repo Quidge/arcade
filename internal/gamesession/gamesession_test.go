@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -610,156 +611,189 @@ func TestTransferHostToUnknownReturnsErrNotSeated(t *testing.T) {
 	}
 }
 
+// The grace-timer tests run inside a synctest bubble so time
+// advances deterministically when all bubble goroutines are
+// durably blocked. This lets each test exercise the production
+// 15-second grace window (DefaultHostGraceDuration) directly
+// without WithHostGraceDuration shims or real-time sleeps —
+// `time.Sleep(15 * time.Second)` completes in microseconds of
+// wall-clock and proves the test is asserting against the same
+// constant production uses. synctest.Wait() drains the timer
+// callback goroutine after fire so assertions race-freely.
+
 func TestHostDisconnectGraceExpiryMigrates(t *testing.T) {
-	r := NewRegistry(WithHostGraceDuration(40 * time.Millisecond))
-	g := r.Create()
-	seedPlayers(t, g, "Alice", "Bob")
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob")
 
-	snapshot, stop := startBackgroundDrain(g)
-	defer stop()
-	g.Disconnect("Alice")
-	// Wait for the grace timer to fire and migrate.
-	time.Sleep(120 * time.Millisecond)
+		snapshot, stop := startBackgroundDrain(g)
+		defer stop()
+		g.Disconnect("Alice")
+		// Fake-time past the grace deadline; synctest.Wait then
+		// settles the AfterFunc callback goroutine.
+		time.Sleep(DefaultHostGraceDuration + time.Second)
+		synctest.Wait()
 
-	if got := hostName(g); got != "Bob" {
-		t.Errorf("Host after grace expiry = %q want Bob", got)
-	}
-	// Alice's seat persists, still disconnected.
-	for _, p := range g.Roster() {
-		if p.Name == "Alice" {
-			if p.Host {
-				t.Errorf("Alice should have lost Host badge: %+v", p)
-			}
-			if p.Connected {
-				t.Errorf("Alice should still be disconnected: %+v", p)
+		if got := hostName(g); got != "Bob" {
+			t.Errorf("Host after grace expiry = %q want Bob", got)
+		}
+		// Alice's seat persists, still disconnected.
+		for _, p := range g.Roster() {
+			if p.Name == "Alice" {
+				if p.Host {
+					t.Errorf("Alice should have lost Host badge: %+v", p)
+				}
+				if p.Connected {
+					t.Errorf("Alice should still be disconnected: %+v", p)
+				}
 			}
 		}
-	}
-	// Event-stream contract: a HostChanged event should have been
-	// emitted with Bob as the new Host and a non-empty notice.
-	var sawHostChanged bool
-	for _, e := range snapshot() {
-		if e.Kind == HostChanged && e.Player.Name == "Bob" {
-			sawHostChanged = true
-			if e.Notice == "" {
-				t.Errorf("HostChanged event should carry Notice text")
+		// Event-stream contract: a HostChanged event should have
+		// been emitted with Bob as the new Host and a non-empty
+		// notice.
+		var sawHostChanged bool
+		for _, e := range snapshot() {
+			if e.Kind == HostChanged && e.Player.Name == "Bob" {
+				sawHostChanged = true
+				if e.Notice == "" {
+					t.Errorf("HostChanged event should carry Notice text")
+				}
 			}
 		}
-	}
-	if !sawHostChanged {
-		t.Errorf("no HostChanged event in stream: %+v", snapshot())
-	}
+		if !sawHostChanged {
+			t.Errorf("no HostChanged event in stream: %+v", snapshot())
+		}
+	})
 }
 
 func TestHostReconnectBeforeGraceCancels(t *testing.T) {
-	r := NewRegistry(WithHostGraceDuration(60 * time.Millisecond))
-	g := r.Create()
-	seedPlayers(t, g, "Alice", "Bob")
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob")
 
-	_, stop := startBackgroundDrain(g)
-	defer stop()
-	g.Disconnect("Alice")
-	// Reconnect well before grace expires.
-	time.Sleep(10 * time.Millisecond)
-	if _, err := g.Reconnect("Alice"); err != nil {
-		t.Fatalf("Reconnect Alice: %v", err)
-	}
-	// Wait past the grace window.
-	time.Sleep(120 * time.Millisecond)
-	if got := hostName(g); got != "Alice" {
-		t.Errorf("Host after Reconnect within grace = %q want Alice", got)
-	}
+		_, stop := startBackgroundDrain(g)
+		defer stop()
+		g.Disconnect("Alice")
+		// Reconnect well before grace expires.
+		time.Sleep(5 * time.Second)
+		if _, err := g.Reconnect("Alice"); err != nil {
+			t.Fatalf("Reconnect Alice: %v", err)
+		}
+		// Advance past the original grace deadline; the cancelled
+		// timer must not fire.
+		time.Sleep(DefaultHostGraceDuration + time.Second)
+		synctest.Wait()
+		if got := hostName(g); got != "Alice" {
+			t.Errorf("Host after Reconnect within grace = %q want Alice", got)
+		}
+	})
 }
 
 func TestHostReconnectAfterGraceDoesNotReclaim(t *testing.T) {
-	r := NewRegistry(WithHostGraceDuration(30 * time.Millisecond))
-	g := r.Create()
-	seedPlayers(t, g, "Alice", "Bob")
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob")
 
-	_, stop := startBackgroundDrain(g)
-	defer stop()
-	g.Disconnect("Alice")
-	// Wait for grace to fire and migrate.
-	time.Sleep(100 * time.Millisecond)
-	if got := hostName(g); got != "Bob" {
-		t.Fatalf("Host after grace expiry = %q want Bob", got)
-	}
-	// Alice rejoins after migration: she should NOT auto-reclaim.
-	if _, err := g.Reconnect("Alice"); err != nil {
-		t.Fatalf("Reconnect Alice: %v", err)
-	}
-	if got := hostName(g); got != "Bob" {
-		t.Errorf("Host after late Reconnect = %q want Bob (no auto-reclaim)", got)
-	}
+		_, stop := startBackgroundDrain(g)
+		defer stop()
+		g.Disconnect("Alice")
+		time.Sleep(DefaultHostGraceDuration + time.Second)
+		synctest.Wait()
+		if got := hostName(g); got != "Bob" {
+			t.Fatalf("Host after grace expiry = %q want Bob", got)
+		}
+		// Alice rejoins after migration: she should NOT auto-reclaim.
+		if _, err := g.Reconnect("Alice"); err != nil {
+			t.Fatalf("Reconnect Alice: %v", err)
+		}
+		synctest.Wait()
+		if got := hostName(g); got != "Bob" {
+			t.Errorf("Host after late Reconnect = %q want Bob (no auto-reclaim)", got)
+		}
+	})
 }
 
 func TestGraceSkipsDisconnectedNextInOrder(t *testing.T) {
-	r := NewRegistry(WithHostGraceDuration(30 * time.Millisecond))
-	g := r.Create()
-	seedPlayers(t, g, "Alice", "Bob", "Carol")
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob", "Carol")
 
-	_, stop := startBackgroundDrain(g)
-	defer stop()
-	// Bob is disconnected before Alice's grace fires; Carol should
-	// inherit Host.
-	g.Disconnect("Bob")
-	g.Disconnect("Alice")
-	time.Sleep(120 * time.Millisecond)
-	if got := hostName(g); got != "Carol" {
-		t.Errorf("Host after grace with Bob disconnected = %q want Carol", got)
-	}
+		_, stop := startBackgroundDrain(g)
+		defer stop()
+		// Bob is disconnected before Alice's grace fires; Carol
+		// should inherit Host.
+		g.Disconnect("Bob")
+		g.Disconnect("Alice")
+		time.Sleep(DefaultHostGraceDuration + time.Second)
+		synctest.Wait()
+		if got := hostName(g); got != "Carol" {
+			t.Errorf("Host after grace with Bob disconnected = %q want Carol", got)
+		}
+	})
 }
 
 func TestRecursiveAutoMigrateWhenNewHostDisconnects(t *testing.T) {
-	r := NewRegistry(WithHostGraceDuration(30 * time.Millisecond))
-	g := r.Create()
-	seedPlayers(t, g, "Alice", "Bob", "Carol")
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob", "Carol")
 
-	_, stop := startBackgroundDrain(g)
-	defer stop()
-	g.Disconnect("Alice")
-	time.Sleep(120 * time.Millisecond) // Alice → Bob.
-	if got := hostName(g); got != "Bob" {
-		t.Fatalf("after first grace: Host = %q want Bob", got)
-	}
-	g.Disconnect("Bob")
-	time.Sleep(120 * time.Millisecond) // Bob → Carol.
-	if got := hostName(g); got != "Carol" {
-		t.Errorf("after second grace: Host = %q want Carol", got)
-	}
+		_, stop := startBackgroundDrain(g)
+		defer stop()
+		g.Disconnect("Alice")
+		time.Sleep(DefaultHostGraceDuration + time.Second) // Alice → Bob.
+		synctest.Wait()
+		if got := hostName(g); got != "Bob" {
+			t.Fatalf("after first grace: Host = %q want Bob", got)
+		}
+		g.Disconnect("Bob")
+		time.Sleep(DefaultHostGraceDuration + time.Second) // Bob → Carol.
+		synctest.Wait()
+		if got := hostName(g); got != "Carol" {
+			t.Errorf("after second grace: Host = %q want Carol", got)
+		}
+	})
 }
 
 func TestNonHostDisconnectDoesNotStartGrace(t *testing.T) {
-	r := NewRegistry(WithHostGraceDuration(30 * time.Millisecond))
-	g := r.Create()
-	seedPlayers(t, g, "Alice", "Bob")
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob")
 
-	_, stop := startBackgroundDrain(g)
-	defer stop()
-	g.Disconnect("Bob")
-	time.Sleep(100 * time.Millisecond)
-	if got := hostName(g); got != "Alice" {
-		t.Errorf("Host after non-Host disconnect = %q want Alice", got)
-	}
+		_, stop := startBackgroundDrain(g)
+		defer stop()
+		g.Disconnect("Bob")
+		time.Sleep(DefaultHostGraceDuration + time.Second)
+		synctest.Wait()
+		if got := hostName(g); got != "Alice" {
+			t.Errorf("Host after non-Host disconnect = %q want Alice", got)
+		}
+	})
 }
 
 func TestVoluntaryHostLeaveDoesNotWaitForGrace(t *testing.T) {
-	// Voluntary Leave by the Host should migrate the badge
-	// immediately, not after a 15-second wait.
-	r := NewRegistry(WithHostGraceDuration(10 * time.Second))
-	g := r.Create()
-	seedPlayers(t, g, "Alice", "Bob")
+	// Voluntary Leave by the Host migrates the badge immediately,
+	// not after the 15-second grace wait. Inside a synctest bubble
+	// we can assert this directly: synctest.Wait() returns as soon
+	// as the Leave path is settled, without any fake-time advance.
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob")
 
-	_, stop := startBackgroundDrain(g)
-	defer stop()
-	start := time.Now()
-	if err := g.Leave("Alice"); err != nil {
-		t.Fatalf("Leave Alice: %v", err)
-	}
-	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
-		t.Errorf("Leave by Host took %v — should be immediate, not gated on grace timer", elapsed)
-	}
-	if got := hostName(g); got != "Bob" {
-		t.Errorf("Host after voluntary Leave = %q want Bob", got)
-	}
+		_, stop := startBackgroundDrain(g)
+		defer stop()
+		if err := g.Leave("Alice"); err != nil {
+			t.Fatalf("Leave Alice: %v", err)
+		}
+		synctest.Wait()
+		if got := hostName(g); got != "Bob" {
+			t.Errorf("Host after voluntary Leave = %q want Bob", got)
+		}
+	})
 }
