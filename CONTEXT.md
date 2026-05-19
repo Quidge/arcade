@@ -5,7 +5,7 @@ Scribble is a small web app for playing a digital reimagining of Telestrations �
 ## Language
 
 **GameSession**:
-A single play instance of one game in the Scribble suite, capped at 8 Players. Has a Host-configured Round timer (15–120s in 15s increments, or off). Starts when the Host clicks "Start" and ends after the reveal.
+A single play instance of one game in the Scribble suite, capped at 8 Players. Has a Host-configured Round timer (15–120s in 15s increments, or off). Starts when the Host clicks "Start," walks through N Rounds and a per-Chain Reveal, and ends when the Host explicitly ends the GameSession (typically after the Reveal has completed but available at any time).
 _Avoid_: game (alone — overloaded with the game-type concept), session (alone — overloaded with HTTP/auth-session), room, match, instance
 
 **Player**:
@@ -13,11 +13,11 @@ A participant in a GameSession, identified by a display name they choose when jo
 _Avoid_: user, guest
 
 **Host**:
-The Player currently holding host powers in a GameSession. Exactly one per GameSession at any time. Initially the Player who created the GameSession by clicking "New game," but Host can change hands: the current Host may voluntarily transfer Host to any other Player (no recipient consent needed), and on Host disconnect lasting longer than 15 seconds, Host auto-migrates to the next Player in join order. A Player rejoining after losing Host does *not* automatically reclaim it. Host abilities: setting the Round timer in the lobby, starting the GameSession, kicking other Players (removes the target's seat in the lobby; force-disconnects them post-Start per ADR 0009), force-advancing the current Round, driving reveal pacing for a Chain whose starter is absent, and transferring Host to another Player.
+The Player currently holding host powers in a GameSession. Exactly one per GameSession at any time. Initially the Player who created the GameSession by clicking "New game," but Host can change hands: the current Host may voluntarily transfer Host to any other Player (no recipient consent needed), and on Host disconnect lasting longer than 15 seconds, Host auto-migrates to the next Player in join order. A Player rejoining after losing Host does *not* automatically reclaim it. Host abilities: setting the Round timer in the lobby, starting the GameSession, kicking other Players (removes the target's seat in the lobby; force-disconnects them post-Start per ADR 0009), force-advancing the current Round, driving Reveal pacing for a Chain whose starter is absent, transferring Host to another Player, and ending the GameSession explicitly.
 _Avoid_: leader, moderator, admin, owner
 
 **Chain**:
-The sequence of Entries belonging to one starting Player. Travels around the table once — each other Player contributes one Entry to it — and returns to its starter for the reveal. A GameSession with N Players has N Chains, one per Player.
+The sequence of Entries belonging to one starting Player. Travels around the table once — each other Player contributes one Entry to it — and returns to its starter for the Reveal. A GameSession with N Players has N Chains, one per Player.
 _Avoid_: pad, thread, story
 
 **Entry**:
@@ -28,12 +28,16 @@ _Avoid_: turn, move, link
 One tick of GameSession progress, in which every Player completes one Entry on the Chain currently in front of them. A Round ends when all Entries are in, the GameSession's Round timer expires, or the Host force-advances — whichever comes first. At Round-end, any Player whose draft is non-empty has their draft shipped as their Entry; any Player whose draft is empty has their slot filled by their Ghost. The GameSession has N Rounds with N Players.
 _Avoid_: phase, step
 
+**Reveal**:
+The post-final-Round phase of a GameSession, during which Chains are walked one at a time in join order. Each Chain's starter drives their own Chain's pacing — tapping to advance through Entries one at a time, then once more after the whole-Chain view, then on to the next Chain. If a starter is absent at Reveal time (any reason — voluntary Leave, Kick, or Disconnect — collapse to one operational state per ADR 0009), the Host drives that Chain on their behalf per ADR 0004. The driver role is re-evaluated on every advance, so a starter who reconnects mid-Reveal-of-their-own-Chain regains control immediately. The Reveal phase ends only when the Host explicitly ends the GameSession; clients linger on the final Chain until then.
+_Avoid_: results, summary, recap, ending
+
 **Caption**:
 A text Entry on a Chain. The Chain's first Entry is its **starter caption** — invented from nothing by the Chain's starter, encouraged-but-not-enforced to be one sentence or less. All subsequent Captions are **guess captions** — written in response to the Drawing immediately preceding them. The central reveal moment is the diff between the starter caption and the final guess caption.
 _Avoid_: prompt, label, guess (as a noun standing alone)
 
 **Drawing**:
-A visual Entry, made in response to the Caption immediately preceding it on the Chain.
+A visual Entry, made in response to the Caption immediately preceding it on the Chain. Composed of one or more **strokes** — each stroke is a polyline of points in normalized 0..1 coordinates, captured between one pointer-down and the next pointer-up. Rendered black on white at a single fixed brush width (MVP). A Drawing's wire shape is the full ordered list of strokes; see ADR 0010 for the streaming model. A Ghost Drawing carries canned strokes from the in-repo library, identical in rendering to a Player-authored Drawing but flagged so the UI shows the "X's Ghost" label.
 _Avoid_: scribble (overloaded with the product name), sketch, doodle
 
 **Ghost**:
@@ -67,6 +71,12 @@ A Player explicitly finalizes their Draft as their Entry for the current Round. 
 **Force advance**:
 The Host ends the current Round early, before all seats have submitted and before the timer (if any) expires. Available only while a Round is active and only to the Host. Round-end finalization follows the same rules as the other triggers (non-empty Drafts ship as Entries; empty Drafts are filled by Ghosts) — Force advance is a low-friction tool, not a separate state.
 
+**Reveal advance**:
+The driver of the current Chain (its starter, or the Host as fallback when the starter is absent) advances the Reveal one step — revealing the next Entry, or transitioning from step-mode to whole-Chain view, or moving on to the next Chain. The driver is re-evaluated per advance against current connection state, so reconnect-mid-Reveal-of-one's-own-Chain restores the starter as driver. Only meaningful during the Reveal phase.
+
+**End game**:
+The Host explicitly ends the GameSession, terminating the room. Available to the Host at any time, regardless of phase. Closes all WebSockets cleanly and removes the GameSession from the registry; clients receive a "game ended" signal and render a thanks-for-playing landing. The only way out of a GameSession that has Started.
+
 ## Relationships
 
 - A **GameSession** has 2 to 8 **Players** (the floor of 2 is preserved for testing and small-group hobby use; the board game is typically more fun with 4+)
@@ -82,7 +92,7 @@ The Host ends the current Round early, before all seats have submitted and befor
 > **Domain expert:** "The Player's **Draft** is held server-side, so if they typed or drew anything at all before disconnecting, that gets shipped as their **Entry** at Round-end. If they contributed nothing, their **Ghost** fills the slot — visibly labeled, so the room knows it wasn't them."
 
 > **Dev:** "When the **GameSession** ends, do we show all the **Chains** at once?"
-> **Domain expert:** "No — each **Chain** belongs to its starter, and the delight is each starter walking the group through what happened to *their* Chain. The reveal is per-Chain, in some order."
+> **Domain expert:** "No — each **Chain** belongs to its starter, and the delight is each starter walking the group through what happened to *their* Chain. The **Reveal** is per-Chain, in join order."
 
 ## Flagged ambiguities
 
