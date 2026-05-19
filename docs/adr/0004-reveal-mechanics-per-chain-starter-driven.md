@@ -2,7 +2,7 @@
 
 At GameSession end, Chains are revealed one at a time in join order. The starter of each Chain controls the pace of *their own* Chain's reveal — their phone shows the "Next" button while everyone else's says "Watching." Entries are shown one at a time, building suspense, with the whole Chain visible at the end for re-reading and screenshotting. The whole room sees the same screen state, synchronized — this is one shared experience, not N parallel ones.
 
-If the starter of a Chain is absent at reveal time (left, kicked, disconnected and not rejoined), the Host takes over driving that Chain's reveal. The Chain still wears the starter's name in the header; the Host is just driving the slideshow on their behalf.
+If the starter of a Chain is absent at reveal time — for any reason — the Host takes over driving that Chain's reveal. The Chain still wears the starter's name in the header; the Host is just driving the slideshow on their behalf. "Absent" is one operational state: the starter's seat exists but is not currently bound to a live WebSocket. Voluntary Leave, Kick, and Disconnect mid-game all collapse into that single state per ADR 0009.
 
 ## Considered Options
 

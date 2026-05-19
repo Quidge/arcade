@@ -13,7 +13,7 @@ A participant in a GameSession, identified by a display name they choose when jo
 _Avoid_: user, guest
 
 **Host**:
-The Player currently holding host powers in a GameSession. Exactly one per GameSession at any time. Initially the Player who created the GameSession by clicking "New game," but Host can change hands: the current Host may voluntarily transfer Host to any other Player (no recipient consent needed), and on Host disconnect lasting longer than 15 seconds, Host auto-migrates to the next Player in join order. A Player rejoining after losing Host does *not* automatically reclaim it. Host abilities: setting the Round timer in the lobby, starting the GameSession, kicking other Players, force-advancing the current Round, driving reveal pacing for a Chain whose starter is absent, and transferring Host to another Player.
+The Player currently holding host powers in a GameSession. Exactly one per GameSession at any time. Initially the Player who created the GameSession by clicking "New game," but Host can change hands: the current Host may voluntarily transfer Host to any other Player (no recipient consent needed), and on Host disconnect lasting longer than 15 seconds, Host auto-migrates to the next Player in join order. A Player rejoining after losing Host does *not* automatically reclaim it. Host abilities: setting the Round timer in the lobby, starting the GameSession, kicking other Players (removes the target's seat in the lobby; force-disconnects them post-Start per ADR 0009), force-advancing the current Round, driving reveal pacing for a Chain whose starter is absent, and transferring Host to another Player.
 _Avoid_: leader, moderator, admin, owner
 
 **Chain**:
@@ -41,7 +41,7 @@ A bot stand-in for a Player who submits nothing during a Round. At Round-end, if
 _Avoid_: bot, AI, placeholder, fallback
 
 **Draft**:
-A Player's in-progress, not-yet-submitted input for the current Round, held server-side. Typed characters and drawn strokes stream from the Player's client over WebSocket and accumulate as the Draft. On submit (or when the Round ends with non-empty Draft), the Draft is finalized as that Round's Entry for the Player.
+A Player's in-progress, not-yet-submitted input for the current Round, held server-side. Typed characters and drawn strokes stream from the Player's client over WebSocket and accumulate as the Draft. On submit (or when the Round ends with non-empty Draft), the Draft is finalized as that Round's Entry for the Player. Submission is one-way: once a Player has explicitly submitted in a Round, the Draft is locked and cannot be edited; a Player who Disconnects after submitting stays submitted.
 _Avoid_: working copy, sketch, scratch
 
 ## Verbs
@@ -56,7 +56,7 @@ An existing seat is re-bound to a new live connection. Happens when a WebSocket 
 A Player's live WebSocket connection ends. The seat persists with its Host status, join-order position, and any server-held state intact. The Player remains a member of the GameSession.
 
 **Leave**:
-A Player's seat is removed from the GameSession. Triggered by a Host kick, a voluntary "leave game" action, or the GameSession ending. Frees the display name and the slot toward the 8-Player cap. Distinct from Disconnect: a disconnected Player is still in the GameSession; a Leaving Player is not.
+A Player's seat is removed from the GameSession. In the lobby, triggered by a Host kick, a voluntary "leave game" action, or the GameSession ending — frees the display name and the slot toward the 8-Player cap, distinct from Disconnect. Once the GameSession has started, Leave and Kick no longer remove the seat: they collapse into the same Disconnected state as a connection drop (seat persists, Connected flips to false, Ghost fills any missing Entries, Host drives the absent starter's reveal). The only seat-removal path post-Start is the GameSession ending. See ADR 0009.
 
 ## Relationships
 
