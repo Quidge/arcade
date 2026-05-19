@@ -13,6 +13,7 @@ Rejoin is by typing the same join code with the same display name; display names
 - **Inert placeholder content like `(no caption)`** (rejected in favor of Ghost) — flat, ungenerous, kills comedy. Ghost-produced content preserves Chain integrity and turns absences into part of the joke.
 - **No rejoin at all** (rejected) — too socially harsh for a co-located dinner-table use case where the dropped Player is standing right there.
 - **Account-based identity for rejoin** (deferred) — would harden the rejoin mechanism against spoofing, but auth is out of scope for MVP.
+- **Client-bearer token issued on Join, persisted in localStorage and presented on Reconnect** (deferred) — a lighter-weight hardening than account-based auth. The server issues an opaque token on first Join; the client stores it; subsequent WebSocket upgrades to the same seat present it as evidence of "yes, I'm the original holder." Closes the impersonation hole without account-creation friction. Worth revisiting if spoofing in the trusted-friends context produces real friction.
 
 ## Consequences
 
