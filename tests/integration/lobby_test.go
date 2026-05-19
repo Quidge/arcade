@@ -227,7 +227,7 @@ func TestCapExceededRejected(t *testing.T) {
 }
 
 func TestCapExceededWithDisconnectedSeat(t *testing.T) {
-	srv, _ := newApp(t)
+	srv, reg := newApp(t)
 	code := createSession(t, srv)
 
 	conns := make([]*websocket.Conn, 0, gamesession.MaxPlayers)
@@ -237,43 +237,46 @@ func TestCapExceededWithDisconnectedSeat(t *testing.T) {
 		if c == nil {
 			t.Fatalf("Player %d failed to connect", i)
 		}
+		defer c.CloseNow()
 		_ = readRoster(t, c)
 		conns = append(conns, c)
 	}
-	// Disconnect one — seat persists.
-	_ = conns[0].Close(websocket.StatusNormalClosure, "")
-	// Wait for the server to observe the close and broadcast the
-	// PlayerDisconnected roster snapshot. Reads on conns[1] may
-	// time out individually (we're racing the deferred Disconnect
-	// on the server); retry until we see the expected state or
-	// the outer deadline expires.
+	// Disconnect one — seat persists. Use CloseNow rather than the
+	// graceful Close because we don't care about the close-frame
+	// handshake here, only that the server-side handler exits and
+	// runs its deferred Disconnect.
+	_ = conns[0].CloseNow()
+
+	// Poll the domain registry directly: this avoids racing the
+	// broadcast pump and the per-conn read buffers (which would
+	// require draining each conn under load).
+	session, ok := reg.Lookup(code)
+	if !ok {
+		t.Fatalf("session %q not found in registry", code)
+	}
 	deadline := time.Now().Add(3 * time.Second)
-	sawDisconnected := false
-	for time.Now().Before(deadline) && !sawDisconnected {
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		_, p, err := conns[1].Read(ctx)
-		cancel()
-		if err != nil {
-			// Timeout is fine; the broadcast may not have happened
-			// yet. Any other error fails the test.
-			if !strings.Contains(err.Error(), "context deadline exceeded") {
-				t.Fatalf("read on conns[1]: %v", err)
+	for time.Now().Before(deadline) {
+		var p0 gamesession.Player
+		for _, p := range session.Roster() {
+			if p.Name == "p0" {
+				p0 = p
+				break
 			}
-			continue
 		}
-		var m rosterMsg
-		if err := json.Unmarshal(p, &m); err == nil && rosterContains(m, "p0", true, false) {
-			sawDisconnected = true
+		if p0.Name == "p0" && !p0.Connected {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	stillConnected := false
+	for _, p := range session.Roster() {
+		if p.Name == "p0" && p.Connected {
+			stillConnected = true
 		}
 	}
-	if !sawDisconnected {
-		t.Fatalf("never saw p0 marked disconnected in conns[1]'s roster broadcasts")
+	if stillConnected {
+		t.Fatalf("server never registered p0 as disconnected within deadline")
 	}
-	defer func() {
-		for _, c := range conns[1:] {
-			_ = c.CloseNow()
-		}
-	}()
 
 	dupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
