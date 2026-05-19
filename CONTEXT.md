@@ -9,7 +9,7 @@ A single play instance of one game in the Scribble suite, capped at 8 Players. H
 _Avoid_: game (alone — overloaded with the game-type concept), session (alone — overloaded with HTTP/auth-session), room, match, instance
 
 **Player**:
-A participant in a GameSession, identified by a display name they choose when joining. Display names are unique within a GameSession; rejoining after a disconnect requires the same display name on the same join code.
+A participant in a GameSession, identified by a display name they choose when joining. A Player is a persistent seat in the GameSession: their record survives WebSocket disconnects and is only removed when they Leave (kicked, voluntarily quit, or GameSession ends). A Player's connection status — currently Connected via WebSocket, or not — is a separate concern from membership. Display names are unique within a GameSession; rejoining after a disconnect requires the same display name on the same join code.
 _Avoid_: user, guest
 
 **Host**:
@@ -43,6 +43,20 @@ _Avoid_: bot, AI, placeholder, fallback
 **Draft**:
 A Player's in-progress, not-yet-submitted input for the current Round, held server-side. Typed characters and drawn strokes stream from the Player's client over WebSocket and accumulate as the Draft. On submit (or when the Round ends with non-empty Draft), the Draft is finalized as that Round's Entry for the Player.
 _Avoid_: working copy, sketch, scratch
+
+## Verbs
+
+**Join**:
+A new Player takes a seat in the GameSession. Happens when a WebSocket upgrade arrives with a display name no existing seat holds and capacity allows. Creates the seat, establishes the first connection, and (if the GameSession was empty) confers Host. Fails with a capacity error if the 8-Player cap is already reached.
+
+**Reconnect**:
+An existing seat is re-bound to a new live connection. Happens when a WebSocket upgrade arrives with a display name an existing seat already holds. If the seat already had a live connection, that prior connection is superseded — the new connection wins. No authentication step; any WebSocket upgrade typing a held name takes the seat (trust model per ADR 0003).
+
+**Disconnect**:
+A Player's live WebSocket connection ends. The seat persists with its Host status, join-order position, and any server-held state intact. The Player remains a member of the GameSession.
+
+**Leave**:
+A Player's seat is removed from the GameSession. Triggered by a Host kick, a voluntary "leave game" action, or the GameSession ending. Frees the display name and the slot toward the 8-Player cap. Distinct from Disconnect: a disconnected Player is still in the GameSession; a Leaving Player is not.
 
 ## Relationships
 
