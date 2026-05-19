@@ -1,6 +1,6 @@
 # Players are persistent seats; WebSocket connection state is a separate concern
 
-A Player is a slot in a GameSession that persists across WebSocket disconnects, not an ephemeral pairing of "display name + live connection." When a Player Disconnects — their WebSocket dies, intentionally or otherwise — their seat remains in the GameSession: Host status, position in the join order, and any server-held state attached to them are preserved. The seat is removed only by Leave (Host kick, voluntary "leave game," or GameSession ending).
+A Player is a slot in a GameSession that persists across WebSocket disconnects, not an ephemeral pairing of "display name + live connection." When a Player Disconnects — their WebSocket dies, intentionally or otherwise — their seat remains in the GameSession: Host status, position in the join order, and any server-held state attached to them are preserved. The seat is removed only by Leave (Host kick or voluntary "leave game") in the lobby, or by the GameSession ending. ADR 0009 refines this: once the GameSession has started, Leave and Kick no longer remove the seat — they collapse into the same Disconnected state.
 
 A separate per-Player flag tracks whether the Player currently has a live WebSocket. The verb pair **Reconnect** / **Disconnect** operates on this connection state. The verb pair **Join** / **Leave** operates on seat membership. These two pairs are not interchangeable, and conflating them was the bug PR #14 inadvertently introduced.
 
