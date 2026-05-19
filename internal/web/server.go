@@ -25,6 +25,7 @@ import (
 	"github.com/quidge/scribble/internal/gamesession"
 	"github.com/quidge/scribble/internal/joincode"
 	"github.com/quidge/scribble/internal/presence"
+	"github.com/quidge/scribble/internal/seatconn"
 )
 
 const (
@@ -32,13 +33,13 @@ const (
 	maxNameLength  = 32
 )
 
-// closePolicyDuplicateName / closePolicyCapExceeded are the
+// closePolicyCapExceeded / closePolicySuperseded are the
 // machine-readable Reason strings used in the WebSocket close
 // frame for the named rejection cases. Integration tests assert
 // on these.
 const (
-	closePolicyDuplicateName = "duplicate name: that display name is already taken in this session"
-	closePolicyCapExceeded   = "session full: this game session already has 8 players"
+	closePolicyCapExceeded = "session full: this game session already has 8 players"
+	closePolicySuperseded  = "superseded: another connection took over this seat"
 )
 
 //go:embed templates
@@ -46,7 +47,9 @@ var templatesFS embed.FS
 
 // rosterMsg is the wire-format envelope for a roster snapshot.
 // It mirrors the schema described in the lobby slice's wire-format
-// section: {"type":"roster","players":[{"name":..., "host":...}]}.
+// section:
+//
+//	{"type":"roster","players":[{"name":..., "host":..., "connected":...}]}
 type rosterMsg struct {
 	Type    string               `json:"type"`
 	Players []gamesession.Player `json:"players"`
@@ -59,6 +62,8 @@ type Server struct {
 
 	mu    sync.Mutex
 	rooms map[string]*presence.Broadcaster
+
+	seats *seatconn.Registry
 
 	tmpl *templates
 
@@ -84,6 +89,7 @@ func New(registry *gamesession.Registry, gitSHA string) *Server {
 	return &Server{
 		registry: registry,
 		rooms:    map[string]*presence.Broadcaster{},
+		seats:    seatconn.New(),
 		tmpl:     t,
 		gitSHA:   gitSHA,
 	}
@@ -162,6 +168,16 @@ func (s *Server) renderNotFound(w http.ResponseWriter) {
 	})
 }
 
+// wsConnHandle adapts *websocket.Conn to the seatconn.ConnHandle
+// surface (a single Close(reason) method). The status code is fixed
+// at PolicyViolation, which is what the lobby's other policy-based
+// rejections use.
+type wsConnHandle struct{ c *websocket.Conn }
+
+func (h wsConnHandle) Close(reason string) {
+	_ = h.c.Close(websocket.StatusPolicyViolation, reason)
+}
+
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	canon, ok := joincode.Parse(r.PathValue("code"))
 	if !ok {
@@ -190,28 +206,61 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ws accept: %v", err)
 		return
 	}
-	// Ownership of conn is ours from here.
 	defer func() { _ = conn.CloseNow() }()
 
-	if _, err := session.Join(name); err != nil {
+	// Acquire the seat-connection slot *before* binding to the
+	// domain. If another connection holds this seat, supersede it
+	// by closing its handle; the prior handler's deferred Release
+	// will return wasCurrent=false and skip its Disconnect, leaving
+	// the seat's connection state for us to own.
+	key := canon + "/" + name
+	prior, gen := s.seats.Acquire(key, wsConnHandle{c: conn})
+	if prior != nil {
+		prior.Close(closePolicySuperseded)
+	}
+	releaseDone := false
+	defer func() {
+		if releaseDone {
+			return
+		}
+		if wasCurrent := s.seats.Release(key, gen); wasCurrent {
+			session.Disconnect(name)
+		}
+	}()
+
+	// Dispatch by seat existence. If a seat with this name already
+	// exists, this is a Reconnect; otherwise it's a fresh Join.
+	// We tolerate a race between HasSeat and Join: if a Join
+	// returns ErrSeatExists, fall back to Reconnect.
+	var domainErr error
+	if session.HasSeat(name) {
+		_, domainErr = session.Reconnect(name)
+	} else {
+		_, domainErr = session.Join(name)
+		if errors.Is(domainErr, gamesession.ErrSeatExists) {
+			_, domainErr = session.Reconnect(name)
+		}
+	}
+	if domainErr != nil {
 		var reason string
 		switch {
-		case errors.Is(err, gamesession.ErrDuplicateName):
-			reason = closePolicyDuplicateName
-		case errors.Is(err, gamesession.ErrCapExceeded):
+		case errors.Is(domainErr, gamesession.ErrCapExceeded):
 			reason = closePolicyCapExceeded
 		default:
 			reason = "join failed"
 		}
+		// Release before close so wasCurrent=true does not fire a
+		// stray Disconnect on a seat that was never bound.
+		s.seats.Release(key, gen)
+		releaseDone = true
 		_ = conn.Close(websocket.StatusPolicyViolation, reason)
 		return
 	}
-	defer session.Leave(name)
 
 	// Write the current roster directly to this conn before
-	// subscribing. The pump's broadcast for this Join went out to
-	// existing subscribers (not yet including us), so we owe this
-	// conn its initial snapshot.
+	// subscribing. The pump's broadcast for our Join/Reconnect (if
+	// any) went out to existing subscribers (not yet including us),
+	// so we owe this conn its initial snapshot.
 	if err := writeRoster(conn, session.Roster()); err != nil {
 		log.Printf("ws initial write: %v", err)
 		return
@@ -236,7 +285,9 @@ func (s *Server) ensureRoom(g *gamesession.GameSession) *presence.Broadcaster {
 }
 
 // runPump consumes session events and broadcasts each one as a
-// JSON roster snapshot.
+// JSON roster snapshot. All three event kinds (Joined, Disconnected,
+// Reconnected) carry a fresh roster snapshot, so the pump treats
+// them uniformly — it does not need to inspect Kind.
 func (s *Server) runPump(g *gamesession.GameSession, b *presence.Broadcaster) {
 	for e := range g.Events() {
 		payload, err := json.Marshal(rosterMsg{
