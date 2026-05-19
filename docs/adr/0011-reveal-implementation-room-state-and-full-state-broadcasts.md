@@ -1,0 +1,45 @@
+# Reveal implementation: room-state cursor, pure-data Chain, full-state broadcasts
+
+The reveal flow ADR 0004 specifies (per-Chain, starter-driven, Host fallback, room-synchronized) is implemented as three coordinated pieces:
+
+1. **`internal/chain`** is a pure data package. A `chain.Store` accumulates Entries during Rounds 0..N-1 and exposes read methods (`Entries`, `Starter`, `Len`, `AssignmentsForRound`, `PromptFor`) that anyone can call at any time. After Round N-1 the Store is effectively frozen — no further `Append` calls are made — but the type does not enforce this; the GameSession's phase machinery is the runtime guard. The Chain knows nothing about "is the reveal in progress," "which Chain is being shown," or "who is the driver." It is a list of finalized contributions.
+
+2. **The reveal cursor — `(chainIdx, entryIdx, mode: "step"|"full"|"complete")` — lives in the web layer's `roomState`**, not in the chain package. It is implemented as a small unexported FSM helper (`revealCursor`) that exposes `Start(chainLens)`, `Advance()`, `Step()`, `Done()`. The cursor knows nothing about WebSockets, GameSessions, Players, or driver authorization; it is pure data-in, data-out. It is unit-tested in isolation (`internal/web/reveal_cursor_test.go`, white-box `package web`).
+
+3. **The driver authorization check** — "is this `reveal-advance` command allowed?" — is a one-line inline function in the web layer's command handler, re-evaluated on every command. If the current Chain's starter is `Connected`, only the starter may advance; otherwise only the current Host may. No state is pinned at Chain-start; reconnect-mid-reveal restores the starter as driver immediately on their next attempted advance.
+
+The wire format carries the **full reveal view on every broadcast** — `entries_visible` accumulates each newly-revealed Entry, and every advance broadcasts the complete current state. There is no "incremental: here is the new Entry, accumulate" path.
+
+This decomposition is deliberate. ADR 0004 named the user-facing semantics but did not pin the implementation; this ADR records the implementation choices that fell out of grilling.
+
+The factoring rests on one structural observation that distinguishes reveal from the Round flow that #25 established:
+
+- **Round controllers *write* Drafts during a Round** (seal on Submit, read at finalize). Drafts mutate mid-flight. The bidirectional coupling between Round and Draft is why issue #8 split them across packages — each package's lifecycle is active during the Round, and isolating them made each independently testable.
+- **Reveal *reads* Chains without mutating them.** Chains are frozen the moment Round N-1 finalizes. Reveal is pure observation of a finalized data structure.
+
+When the relationship between control flow and data is bidirectional-during-lifetime (Round ↔ Draft), the data/control split across packages pays. When it is unidirectional-read (Reveal → Chain), forcing the same split costs surface area without a corresponding test or comprehension benefit. The reveal cursor lives next to its only caller (the web layer's command handler) rather than next to the data it walks.
+
+Full-state-per-broadcast is chosen over incremental for the same reasons strokes ship full-replace (ADR 0010): trivial reconnect handling (unicast the current envelope and the client renders), idempotent updates (a duplicate broadcast doesn't desync), and no client-side accumulation logic to maintain. The bandwidth cost is bounded — a Chain's full `entries_visible` payload is at most N Entries (and Drawings are the largest item, themselves bounded at the slice's scale).
+
+Driver re-evaluation per advance is chosen over pinning at Chain-start because it handles reconnect-mid-reveal-of-one's-own-Chain cleanly. A starter who drops their phone, picks it back up mid-reveal-of-their-Chain, and reconnects gets their driver role back on the next attempted advance — no state to update, no edge case in the cursor, just the next `canAdvanceReveal` check returning true again. Pinning the driver at Chain-start would mean "Alice was Disconnected when her Chain started, so Host drives the whole Chain even if Alice comes back mid-walk" — strictly worse UX in exchange for nothing.
+
+## Considered Options
+
+- **Reveal as its own package (`internal/reveal`), sibling to `chain`, `draft`, `ghost`, `round`** (rejected). The instinct that drove this option was pattern-matching to issue #8's data/control split. The instinct was wrong here: Chains are read-only during reveal (unlike Drafts during Rounds), so the data/control coupling that justified separate `draft` and `round` packages does not justify separate `chain` and `reveal` packages. Adding the package would cost ~150 lines of API surface for the same FSM that fits in one unexported type in the web layer.
+- **Reveal logic added as a second pair of method groups on `chain.Store`** (rejected). Co-locates the FSM with the data. The factoring is "Chain is a list of Entries and *also* knows how to walk itself through reveal" — two unrelated lifecycles bundled into one struct. The accumulating-Entries lifecycle (active during Rounds) and the walking-Entries lifecycle (active during reveal) share no state, so co-locating them adds methods to a type that does not need them. Two types in one package (`chain.Store` for accumulation, `chain.Reveal` for walking) was considered as a tidier version of this option; rejected because the lifecycle separation is already enforced at runtime by the GameSession's Phase guard, and a compile-time type wall on top is paying for safety that already exists.
+- **Incremental broadcasts: each advance pushes only the newly-revealed Entry; clients accumulate** (rejected). Smaller wire payload per advance. Cost: reconnect-mid-reveal must reconstruct the accumulator state from a separate snapshot envelope; duplicate or out-of-order broadcasts can desync clients; client-side accumulation logic must be written and tested. The bandwidth saving is trivial at the slice's scale (a few KB per broadcast even with Drawings) and the complexity cost is paid by every client implementation forever.
+- **Pin the driver at Chain-start; do not re-evaluate per advance** (rejected). Simpler if you describe the FSM in a vacuum — the driver is part of the Chain's state-at-start. Cost: a starter who reconnects mid-reveal-of-their-own-Chain stays locked out for the remainder of their Chain, even though their `Connected` flag flipped back to true. ADR 0008's whole point is that connection state is the live operational signal; pinning the driver at Chain-start contradicts that posture.
+- **Synchronize reveal client-side: server pushes the full Chain once per Chain; each client paces independently** (rejected). Breaks ADR 0004's "one shared experience, not N parallel ones" requirement. Co-located party game; the room is supposed to see the same screen simultaneously.
+
+## Consequences
+
+- `internal/chain` is a pure data package. Its public surface is exclusively accumulation (`Init`, `Append`, `PromptFor`, `AssignmentsForRound`) and read (`Entries`, `Starter`, `Len`). Tests are co-located in `package chain` and exercise data semantics — no GameSession setup, no wire fixtures.
+- `internal/web` gains an unexported `revealCursor` type (~50 lines) with co-located white-box tests at `internal/web/reveal_cursor_test.go`. The FSM is testable in isolation; integration tests cover the end-to-end wire+authorization behavior.
+- `roomState` (in `internal/web`) gains a `*revealCursor` field. Set when the final Round's `onRoundEnd` callback fires; transitions through `step` and `full` modes on `reveal-advance` commands; reaches `complete` after the last Chain.
+- The wire format adds two new envelopes:
+  - `reveal-state` (server → client, broadcast on each advance and unicast on Reconnect-mid-reveal). Carries `chain_index`, `starter`, `driver` (computed at send time), `mode`, `entries_visible` (the full accumulating view), and `more_chains`.
+  - `reveal-advance` (client → server). Dispatched in `handleCommand`; runs `canAdvanceReveal(actor, starter, session)` inline; on success, advances the cursor and rebroadcasts; on failure, logs and drops.
+- The driver re-evaluation rule means that a starter who reconnects during reveal of their own Chain regains the Next button on their next attempted advance. The wire format carries `driver` as a computed field per broadcast, so clients render the right UI state automatically.
+- Reconnect-mid-reveal handling reuses the existing `writePhaseSnapshot` path: a new `StateReveal` branch in the phase switch unicasts the current `reveal-state` envelope. No separate "reveal-rehydrate" envelope is needed.
+- The reveal cursor handles `chainLens` of any length and any count. The N=2 slice exercises N=2 Chains of length 2 each; future slices for N=3, N=4, ..., N=8 require zero changes to the cursor or the wire format.
+- ADR 0004 is unchanged — it describes the user-facing reveal behavior. This ADR adds the implementation underneath it. Future readers wondering "where does reveal live in the code?" land here.
