@@ -13,6 +13,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -33,14 +34,33 @@ const (
 	maxNameLength  = 32
 )
 
-// closePolicyCapExceeded / closePolicySuperseded are the
-// machine-readable Reason strings used in the WebSocket close
-// frame for the named rejection cases. Integration tests assert
-// on these.
+// closePolicyCapExceeded / closePolicySuperseded / closePolicyKicked
+// are the machine-readable Reason strings used in the WebSocket
+// close frame for the named rejection cases. Integration tests
+// assert on these.
 const (
 	closePolicyCapExceeded = "session full: this game session already has 8 players"
 	closePolicySuperseded  = "superseded: another connection took over this seat"
+	closePolicyKicked      = "kicked: the host removed you from this game session"
 )
+
+// rosterMsg / noticeMsg are the two wire-format envelopes the
+// lobby slice broadcasts. Roster carries the live seat snapshot
+// after every domain transition; Notice carries the human-readable
+// text accompanying Host changes, kicks, and voluntary leaves.
+type noticeMsg struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// clientCmd is the schema for messages clients send to the server
+// over the lobby WebSocket. Type is one of "transfer-host",
+// "kick", "leave"; Target is the display name of the affected
+// seat for the first two and unused for "leave".
+type clientCmd struct {
+	Type   string `json:"type"`
+	Target string `json:"target,omitempty"`
+}
 
 //go:embed templates
 var templatesFS embed.FS
@@ -267,7 +287,101 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	b := s.ensureRoom(session)
-	_ = b.Subscribe(r.Context(), conn)
+	sub := b.Add(conn)
+	defer b.Remove(sub)
+
+	// Read loop: dispatch client commands until the conn closes.
+	// A nil command (parse error, unknown type) is logged but does
+	// not tear down the connection.
+	for {
+		_, data, err := conn.Read(r.Context())
+		if err != nil {
+			return
+		}
+		s.handleCommand(session, b, canon, name, data)
+	}
+}
+
+// handleCommand parses one inbound text frame from a seat's WS
+// connection and dispatches the named verb against the session.
+// selfName is the display name of the seat that owns the
+// connection — authorization checks (e.g. only Host can kick)
+// are applied here. Errors are logged and discarded; the WS
+// remains open so the client can retry.
+func (s *Server) handleCommand(session *gamesession.GameSession, b *presence.Broadcaster, canon, selfName string, data []byte) {
+	var cmd clientCmd
+	if err := json.Unmarshal(data, &cmd); err != nil {
+		log.Printf("ws cmd parse from %s: %v", selfName, err)
+		return
+	}
+	switch cmd.Type {
+	case "transfer-host":
+		target := strings.TrimSpace(cmd.Target)
+		if target == "" {
+			return
+		}
+		if err := session.TransferHost(selfName, target); err != nil {
+			log.Printf("transfer-host %s->%s: %v", selfName, target, err)
+		}
+	case "kick":
+		target := strings.TrimSpace(cmd.Target)
+		if target == "" || target == selfName {
+			return
+		}
+		// Only the current Host may kick. Re-check inside the
+		// switch in case the badge moved between the client
+		// rendering the button and the message arriving.
+		if currentHost(session) != selfName {
+			return
+		}
+		if err := session.Leave(target); err != nil {
+			log.Printf("kick %s by %s: %v", target, selfName, err)
+			return
+		}
+		s.seats.Close(canon+"/"+target, closePolicyKicked)
+		broadcastNotice(b, fmt.Sprintf("%s was kicked from the game", target))
+	case "leave":
+		// A seat may always leave itself. If the leaver was the
+		// Host the engine-produced HostChanged notice will
+		// announce both the leave and the migration — skip the
+		// generic notice in that case.
+		wasHost := currentHost(session) == selfName
+		if err := session.Leave(selfName); err != nil {
+			log.Printf("leave %s: %v", selfName, err)
+			return
+		}
+		// Close the leaver's own WS so the seat's connection slot
+		// is freed and the client returns to name entry. Using
+		// seats.Close here mirrors the kick path: the deferred
+		// Release in the read loop's parent will observe the entry
+		// gone and skip the no-op Disconnect on a removed seat.
+		s.seats.Close(canon+"/"+selfName, "")
+		if !wasHost {
+			broadcastNotice(b, fmt.Sprintf("%s left the game", selfName))
+		}
+	default:
+		log.Printf("ws cmd unknown type %q from %s", cmd.Type, selfName)
+	}
+}
+
+// currentHost returns the display name of the seat that currently
+// holds the Host badge in session, or "" if none.
+func currentHost(session *gamesession.GameSession) string {
+	for _, p := range session.Roster() {
+		if p.Host {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+func broadcastNotice(b *presence.Broadcaster, text string) {
+	payload, err := json.Marshal(noticeMsg{Type: "notice", Text: text})
+	if err != nil {
+		log.Printf("marshal notice: %v", err)
+		return
+	}
+	b.Broadcast(payload)
 }
 
 // ensureRoom returns (and lazily creates) the broadcaster for g.
@@ -284,13 +398,14 @@ func (s *Server) ensureRoom(g *gamesession.GameSession) *presence.Broadcaster {
 	return b
 }
 
-// runPump consumes session events and broadcasts each one as a
-// JSON roster snapshot. All three event kinds (Joined, Disconnected,
-// Reconnected) carry a fresh roster snapshot, so the pump treats
-// them uniformly — it does not need to inspect Kind.
+// runPump consumes session events and broadcasts each one. Every
+// event carries a fresh roster snapshot, broadcast unconditionally
+// so clients reconcile post-transition state. HostChanged events
+// additionally broadcast the engine-produced Notice as a separate
+// message so clients can render a transient banner.
 func (s *Server) runPump(g *gamesession.GameSession, b *presence.Broadcaster) {
 	for e := range g.Events() {
-		payload, err := json.Marshal(rosterMsg{
+		rosterPayload, err := json.Marshal(rosterMsg{
 			Type:    "roster",
 			Players: e.Roster,
 		})
@@ -298,7 +413,10 @@ func (s *Server) runPump(g *gamesession.GameSession, b *presence.Broadcaster) {
 			log.Printf("marshal roster: %v", err)
 			continue
 		}
-		b.Broadcast(payload)
+		b.Broadcast(rosterPayload)
+		if e.Notice != "" {
+			broadcastNotice(b, e.Notice)
+		}
 	}
 }
 

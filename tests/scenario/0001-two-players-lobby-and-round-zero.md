@@ -89,6 +89,83 @@ this single scenario.
     over by another connection." Alice's lobby is live and
     normal.
 
+## Host mobility and Leave
+
+These steps continue from a normal two-player lobby (Alice as
+Host, Bob connected) and exercise the Host-management slice
+(issue #7 / ADR 0005).
+
+13. **Alice:** In her roster panel, next to `Bob` she sees two
+    small action buttons: "Make Host" and "Kick." Next to her
+    own row she sees no such buttons. At the bottom of the
+    Players panel she sees a "Leave game" button. Bob's view
+    shows neither "Make Host" nor "Kick" — only his own "Leave
+    game" button.
+
+14. **Alice:** Clicks "Make Host" next to Bob.
+    Expected: the Host badge moves to Bob's row in both Alice's
+    and Bob's panels. A transient notice appears in both panels
+    reading "Alice transferred Host to Bob." Alice's row now
+    has neither "Make Host" nor "Kick" affordances (she is no
+    longer Host); Bob's row in Alice's view shows neither
+    affordance for the same reason (Bob is now Host, and a Host
+    sees the affordances on _other_ Players). Bob's view of
+    Alice's row now shows "Make Host" and "Kick" — Bob is the
+    Host now.
+
+15. **Bob:** Clicks "Make Host" next to Alice to give Host back.
+    Expected: badge moves back to Alice; notice reads "Bob
+    transferred Host to Alice."
+
+16. **Alice:** Clicks "Kick" next to Bob.
+    Expected: Bob's tab is closed by the server and shows the
+    message "You were removed from this game session by the
+    host." Bob's seat disappears from Alice's roster. A notice
+    appears in Alice's panel reading "Bob was kicked from the
+    game."
+
+17. **Bob (after 16):** Reopens `/g/<code>` and types `Bob`.
+    Expected: Bob joins as a fresh seat (a Join, not a
+    Reconnect) — the kick removed his prior seat. Alice's
+    roster shows Bob again; Bob has no Host badge.
+
+18. **Bob:** Clicks his own "Leave game" button and confirms
+    the prompt.
+    Expected: Bob's tab returns to the name-entry view. Bob's
+    seat is removed from Alice's roster. Alice sees a notice
+    reading "Bob left the game."
+
+19. **Bob:** Re-joins as `Bob` from the name-entry view to set
+    up the next step.
+
+20. **Alice (Host, with Bob connected):** Closes her tab.
+    Expected: Bob's roster marks Alice as disconnected (greyed
+    out, "(disconnected)" tag) but still showing the Host
+    badge. A grace timer is running server-side, invisible to
+    the UI. If Alice reopens her tab and re-enters `Alice`
+    within ~15 seconds, the grace timer is cancelled and her
+    Host badge persists unchanged.
+
+21. **Alice (continued, Host has gone for >15s):** After the
+    grace window elapses, Bob's panel shows the Host badge move
+    to Bob, and a notice appears reading "Alice was
+    disconnected — Bob is now the Host." Alice's row remains
+    in the roster, greyed out, with no Host badge.
+
+22. **Alice (after 21):** Reopens `/g/<code>` and rejoins as
+    `Alice`.
+    Expected: Alice rejoins as an ordinary connected Player.
+    She does NOT auto-reclaim the Host badge — Bob remains
+    Host. The badge can be handed back via step 15 if Bob
+    chooses, but there is no automatic restoration.
+
+23. **Bob (now Host, with Alice connected as ordinary Player):**
+    Clicks "Leave game" and confirms.
+    Expected: Bob's seat is removed immediately. Alice's
+    roster shows the Host badge move to her right away — there
+    is no grace wait for a voluntary Leave. The notice reads
+    "Bob left the game — Alice is now the Host."
+
 ## Failure modes to verify by hand
 
 - **Unknown code:** visiting `/g/Z9Z-Z9Z` (well-formed but never

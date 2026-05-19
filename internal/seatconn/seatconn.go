@@ -82,3 +82,21 @@ func (r *Registry) Release(key string, gen uint64) (wasCurrent bool) {
 	delete(r.entries, key)
 	return true
 }
+
+// Close removes the entry for key and closes the registered
+// connection with reason. The deletion happens under the lock so
+// the deferred Release in that connection's handler observes the
+// entry as gone and reports wasCurrent=false — preventing a stray
+// domain-level Disconnect from running on a seat that the caller
+// has already removed from the domain. No-op if no entry exists.
+func (r *Registry) Close(key string, reason string) {
+	r.mu.Lock()
+	e, ok := r.entries[key]
+	if ok {
+		delete(r.entries, key)
+	}
+	r.mu.Unlock()
+	if ok {
+		e.conn.Close(reason)
+	}
+}
