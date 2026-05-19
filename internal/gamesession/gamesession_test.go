@@ -797,3 +797,132 @@ func TestVoluntaryHostLeaveDoesNotWaitForGrace(t *testing.T) {
 		}
 	})
 }
+
+// Round-0 phase transitions (issue #8). The State discriminator
+// gates the new Host-only verbs Start and AdvanceFromRound, and
+// changes Leave's effect from seat-removal to Disconnect once the
+// GameSession has started (ADR 0009).
+
+func TestStartRequiresHost(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Bob"); !errors.Is(err, ErrNotHost) {
+		t.Errorf("Start by non-Host: err=%v want ErrNotHost", err)
+	}
+	st, _ := g.Phase()
+	if st != StateLobby {
+		t.Errorf("phase after rejected Start = %v want StateLobby", st)
+	}
+}
+
+func TestStartTransitionsToRoundActive(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	st, round := g.Phase()
+	if st != StateRoundActive {
+		t.Errorf("phase after Start = %v want StateRoundActive", st)
+	}
+	if round != 0 {
+		t.Errorf("round after Start = %d want 0", round)
+	}
+}
+
+func TestStartFromNonLobbyRejected(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	if err := g.Start("Alice"); !errors.Is(err, ErrInvalidPhase) {
+		t.Errorf("second Start: err=%v want ErrInvalidPhase", err)
+	}
+}
+
+func TestAdvanceFromLobbyRejected(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.AdvanceFromRound(); !errors.Is(err, ErrInvalidPhase) {
+		t.Errorf("Advance from lobby: err=%v want ErrInvalidPhase", err)
+	}
+}
+
+func TestAdvanceFromActiveTransitionsToComplete(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := g.AdvanceFromRound(); err != nil {
+		t.Fatalf("AdvanceFromRound: %v", err)
+	}
+	st, _ := g.Phase()
+	if st != StateRoundComplete {
+		t.Errorf("phase after Advance = %v want StateRoundComplete", st)
+	}
+}
+
+func TestLeavePostStartCollapsesToDisconnect(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	_, stop := startBackgroundDrain(g)
+	defer stop()
+	// Non-Host Bob leaves mid-Round.
+	if err := g.Leave("Bob"); err != nil {
+		t.Fatalf("Leave Bob: %v", err)
+	}
+	// Seat persists; Bob is Connected=false.
+	var sawBob bool
+	for _, p := range g.Roster() {
+		if p.Name == "Bob" {
+			sawBob = true
+			if p.Connected {
+				t.Errorf("Bob should be Connected=false after post-Start Leave: %+v", p)
+			}
+		}
+	}
+	if !sawBob {
+		t.Errorf("Bob seat removed post-Start Leave (should persist per ADR 0009)")
+	}
+}
+
+func TestLeavePostStartByHostStartsGrace(t *testing.T) {
+	// Post-Start, voluntary Leave by the Host follows the same
+	// 15s grace timer as Disconnect (ADR 0009 — the seat persists,
+	// the timing distinction disappears).
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob")
+		if err := g.Start("Alice"); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		_, stop := startBackgroundDrain(g)
+		defer stop()
+		if err := g.Leave("Alice"); err != nil {
+			t.Fatalf("Leave Alice: %v", err)
+		}
+		// Migration should not happen instantly post-Start.
+		synctest.Wait()
+		if got := hostName(g); got != "Alice" {
+			t.Errorf("Host immediately after post-Start Host Leave = %q want Alice (grace pending)", got)
+		}
+		// After the grace window, Bob inherits Host.
+		time.Sleep(DefaultHostGraceDuration + time.Second)
+		synctest.Wait()
+		if got := hostName(g); got != "Bob" {
+			t.Errorf("Host after grace = %q want Bob", got)
+		}
+	})
+}
