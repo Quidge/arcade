@@ -2,11 +2,17 @@
 // running GameSessions and the per-session Players + Events surface.
 //
 // A Player is a persistent seat: their record survives WebSocket
-// disconnects and is only removed by Leave (kick or voluntary quit —
-// neither implemented in this slice). A separate Connected flag on
+// disconnects and is only removed by Leave (Host kick, voluntary
+// quit, or the GameSession ending). A separate Connected flag on
 // each Player tracks whether their WebSocket is currently alive.
-// The domain exposes three verbs — Join, Reconnect, Disconnect —
-// each doing one thing. See ADR 0008.
+// The domain exposes four seat verbs — Join, Reconnect, Disconnect,
+// Leave — and one Host-mobility verb — TransferHost. See ADR 0008
+// (seat persistence) and ADR 0005 (Host promotion).
+//
+// Host auto-migration on Disconnect is also a domain concern: when
+// the current Host's seat flips to Connected=false, a grace timer
+// starts. If the timer elapses with the Host still disconnected,
+// the Host badge migrates per the rules in package hostpromote.
 //
 // This package is wire-format-agnostic. The verbs produce typed
 // Events on the channel returned by GameSession.Events(); the web
@@ -18,7 +24,9 @@ package gamesession
 import (
 	"errors"
 	"sync"
+	"time"
 
+	"github.com/quidge/scribble/internal/hostpromote"
 	"github.com/quidge/scribble/internal/joincode"
 )
 
@@ -26,6 +34,12 @@ import (
 // counts seats, connected or not: a disconnected seat blocks a
 // would-be 9th joiner.
 const MaxPlayers = 8
+
+// DefaultHostGraceDuration is the wait between a Host's Disconnect
+// and the auto-migration of the Host badge. ADR 0005 fixes this at
+// 15 seconds for production; tests inject a shorter value via
+// WithHostGraceDuration.
+const DefaultHostGraceDuration = 15 * time.Second
 
 // ErrSeatExists is returned by Join when a seat with the requested
 // display name already exists. Callers should dispatch to Reconnect
@@ -36,9 +50,16 @@ var ErrSeatExists = errors.New("gamesession: seat with that display name already
 // holds MaxPlayers seats.
 var ErrCapExceeded = errors.New("gamesession: game session is full")
 
-// ErrNotSeated is returned by Reconnect when no seat with the
-// requested display name exists.
+// ErrNotSeated is returned by Reconnect, Leave, and TransferHost
+// when the named seat does not exist.
 var ErrNotSeated = errors.New("gamesession: no seat with that display name")
+
+// ErrNotHost is returned by TransferHost when the caller is not
+// the current Host.
+var ErrNotHost = errors.New("gamesession: caller is not the Host")
+
+// ErrSelfTransfer is returned by TransferHost when from == target.
+var ErrSelfTransfer = errors.New("gamesession: cannot transfer Host to self")
 
 // Player is the public roster entry. Host is true for the seat that
 // currently holds the host badge (at most one at a time). Connected
@@ -49,8 +70,8 @@ type Player struct {
 	Connected bool   `json:"connected"`
 }
 
-// EventKind discriminates the seat/connection transitions that the
-// domain emits.
+// EventKind discriminates the seat/connection/host transitions that
+// the domain emits.
 type EventKind int
 
 const (
@@ -64,16 +85,28 @@ const (
 	// no-op (already-connected seat re-bound by the web layer's
 	// supersede flow).
 	PlayerReconnected
+	// PlayerLeft fires when a seat is removed via Leave (Host kick
+	// or voluntary "leave game"). The Player field carries the
+	// last-known state of the seat before removal; Roster reflects
+	// the post-removal state.
+	PlayerLeft
+	// HostChanged fires when the Host badge moves — voluntary
+	// transfer, auto-migrate on grace expiry, or voluntary Leave by
+	// the current Host. Player is the new Host. Notice carries the
+	// human-readable broadcast text.
+	HostChanged
 )
 
-// Event is the transition record emitted on the three domain verbs.
+// Event is the transition record emitted on the domain verbs.
 // Roster is a snapshot captured under the GameSession lock at the
 // time the transition was applied, so consumers see a consistent
-// view without re-locking.
+// view without re-locking. Notice is set only for HostChanged and
+// carries the engine-produced broadcast text.
 type Event struct {
 	Kind   EventKind
 	Player Player
 	Roster []Player
+	Notice string
 }
 
 // GameSession is one in-progress lobby. The zero value is not
@@ -81,9 +114,18 @@ type Event struct {
 type GameSession struct {
 	code string
 
-	mu      sync.RWMutex
+	mu      sync.Mutex
 	players map[string]Player
 	order   []string // join order; stable across Disconnect/Reconnect
+
+	// hostGraceDuration is copied from the Registry at Create time.
+	hostGraceDuration time.Duration
+	// hostGraceTimer is the live grace timer for the current Host,
+	// or nil if no timer is running. Guarded by mu.
+	hostGraceTimer *time.Timer
+	// hostGraceGen is bumped on every start/cancel so a fired-but-
+	// not-yet-run timer closure can detect it was superseded.
+	hostGraceGen uint64
 
 	events chan Event
 }
@@ -92,9 +134,11 @@ type GameSession struct {
 // GameSession.
 func (g *GameSession) Code() string { return g.code }
 
-// Events returns the read end of the event channel. The channel is
-// unbuffered and the domain sends non-blockingly, so slow consumers
-// drop events rather than stalling the verbs.
+// Events returns the read end of the event channel. The channel
+// is lightly buffered (enough to hold the back-to-back emits of a
+// single verb, e.g. PlayerLeft + HostChanged) and the domain
+// sends non-blockingly, so slow consumers drop events rather than
+// stalling the verbs.
 //
 // Callers must consume promptly — only the live state in Roster()
 // is authoritative; events are a notification stream.
@@ -103,8 +147,8 @@ func (g *GameSession) Events() <-chan Event { return g.events }
 // Roster returns the current Players, in join order. The returned
 // slice is a fresh copy; callers may mutate it freely.
 func (g *GameSession) Roster() []Player {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return g.rosterLocked()
 }
 
@@ -115,8 +159,8 @@ func (g *GameSession) Roster() []Player {
 // are tolerated: Join returns ErrSeatExists if a seat appeared
 // between the check and the call.
 func (g *GameSession) HasSeat(name string) bool {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	_, ok := g.players[name]
 	return ok
 }
@@ -127,6 +171,28 @@ func (g *GameSession) rosterLocked() []Player {
 		out = append(out, g.players[name])
 	}
 	return out
+}
+
+// promotionInputLocked translates the roster to the engine's input
+// shape.
+func (g *GameSession) promotionInputLocked() []hostpromote.Player {
+	out := make([]hostpromote.Player, 0, len(g.order))
+	for _, name := range g.order {
+		p := g.players[name]
+		out = append(out, hostpromote.Player{Name: p.Name, Connected: p.Connected})
+	}
+	return out
+}
+
+// currentHostLocked returns the name of the current Host, or ""
+// if no seat currently holds the badge.
+func (g *GameSession) currentHostLocked() string {
+	for _, name := range g.order {
+		if g.players[name].Host {
+			return name
+		}
+	}
+	return ""
 }
 
 // Join atomically creates a new seat with the given name and binds
@@ -158,10 +224,11 @@ func (g *GameSession) Join(name string) (*Player, error) {
 
 // Reconnect re-binds an existing seat to a live connection. If the
 // seat was previously Connected=false, it flips to true and a
-// PlayerReconnected event is emitted. If the seat is already
+// PlayerReconnected event is emitted. If this seat held the Host
+// badge and a Host-grace timer was running, the timer is canceled
+// so the auto-migration does not fire. If the seat is already
 // Connected=true, Reconnect is a no-op at the domain level — the
-// web layer's seatconn registry handles the supersede semantics
-// (the older WebSocket is closed by the caller of seatconn.Acquire).
+// web layer's seatconn registry handles the supersede semantics.
 // Returns ErrNotSeated if no seat with the name exists.
 func (g *GameSession) Reconnect(name string) (*Player, error) {
 	g.mu.Lock()
@@ -176,6 +243,9 @@ func (g *GameSession) Reconnect(name string) (*Player, error) {
 	}
 	p.Connected = true
 	g.players[name] = p
+	if p.Host {
+		g.cancelHostGraceLocked()
+	}
 	snapshot := g.rosterLocked()
 	g.mu.Unlock()
 
@@ -185,9 +255,10 @@ func (g *GameSession) Reconnect(name string) (*Player, error) {
 
 // Disconnect marks the named seat as Connected=false and emits a
 // PlayerDisconnected event. The seat, its Host status, and its
-// position in the join order are preserved. If no seat with the
-// name exists, or the seat is already Connected=false, Disconnect
-// is a no-op (no event).
+// position in the join order are preserved. If the disconnecting
+// seat is the current Host, the auto-migrate grace timer starts.
+// If no seat with the name exists, or the seat is already
+// Connected=false, Disconnect is a no-op (no event).
 func (g *GameSession) Disconnect(name string) {
 	g.mu.Lock()
 	p, ok := g.players[name]
@@ -197,10 +268,210 @@ func (g *GameSession) Disconnect(name string) {
 	}
 	p.Connected = false
 	g.players[name] = p
+	if p.Host {
+		g.startHostGraceLocked(name)
+	}
 	snapshot := g.rosterLocked()
 	g.mu.Unlock()
 
 	g.emit(Event{Kind: PlayerDisconnected, Player: p, Roster: snapshot})
+}
+
+// Leave removes the named seat from the GameSession. The seat's
+// display name is freed and its slot is returned to the cap. If
+// the leaving seat held the Host badge, the badge is cleared and
+// the promotion engine selects a new Host (skipping currently-
+// disconnected seats per ADR 0005); HostChanged fires in addition
+// to PlayerLeft. Returns ErrNotSeated if no such seat exists.
+func (g *GameSession) Leave(name string) error {
+	g.mu.Lock()
+	seat, ok := g.players[name]
+	if !ok {
+		g.mu.Unlock()
+		return ErrNotSeated
+	}
+	wasHost := seat.Host
+
+	// Clear the badge first (the leaving Host must not carry the
+	// badge into removal — see issue #7 acceptance criteria).
+	if wasHost {
+		seat.Host = false
+		g.players[name] = seat
+		// The leaving seat is the Host whose disconnect timer (if
+		// any) is now moot — they're not absent, they're gone.
+		g.cancelHostGraceLocked()
+	}
+
+	// Compute the new Host (if needed) before removing the seat,
+	// so the engine sees the same join-order view that the seat
+	// was sitting in.
+	var decision hostpromote.Decision
+	if wasHost {
+		decision = hostpromote.Decide(
+			name,
+			g.promotionInputLocked(),
+			hostpromote.HostLeftVoluntarily,
+			"",
+		)
+	}
+
+	// Remove the seat from the map and the join order.
+	delete(g.players, name)
+	for i, n := range g.order {
+		if n == name {
+			g.order = append(g.order[:i], g.order[i+1:]...)
+			break
+		}
+	}
+
+	// Apply the new Host badge.
+	if wasHost && decision.NewHost != "" {
+		newHost := g.players[decision.NewHost]
+		newHost.Host = true
+		g.players[decision.NewHost] = newHost
+	}
+
+	left := Player{Name: name, Host: false, Connected: seat.Connected}
+	snapshot := g.rosterLocked()
+
+	// Resolve the new-Host player for the HostChanged event under
+	// the lock so the snapshot and the named seat agree.
+	var newHostSeat Player
+	hasHostChange := wasHost && decision.NewHost != ""
+	if hasHostChange {
+		newHostSeat = g.players[decision.NewHost]
+	}
+	notice := decision.Notice
+	g.mu.Unlock()
+
+	g.emit(Event{Kind: PlayerLeft, Player: left, Roster: snapshot})
+	if hasHostChange {
+		g.emit(Event{Kind: HostChanged, Player: newHostSeat, Roster: snapshot, Notice: notice})
+	}
+	return nil
+}
+
+// TransferHost atomically moves the Host badge from the current
+// holder to target. from must equal the current Host name; target
+// must be an existing seat distinct from from. Emits HostChanged
+// on success. Returns ErrNotHost, ErrSelfTransfer, or ErrNotSeated
+// as appropriate; no event is emitted on error.
+func (g *GameSession) TransferHost(from, target string) error {
+	g.mu.Lock()
+	if from == target {
+		g.mu.Unlock()
+		return ErrSelfTransfer
+	}
+	cur := g.currentHostLocked()
+	if cur != from {
+		g.mu.Unlock()
+		return ErrNotHost
+	}
+	if _, ok := g.players[target]; !ok {
+		g.mu.Unlock()
+		return ErrNotSeated
+	}
+
+	decision := hostpromote.Decide(
+		from,
+		g.promotionInputLocked(),
+		hostpromote.VoluntaryTransfer,
+		target,
+	)
+	if decision.NewHost == "" {
+		// Engine rejected the transfer (shouldn't happen given the
+		// pre-checks above, but be defensive).
+		g.mu.Unlock()
+		return ErrNotSeated
+	}
+
+	oldHost := g.players[from]
+	oldHost.Host = false
+	g.players[from] = oldHost
+	newHost := g.players[decision.NewHost]
+	newHost.Host = true
+	g.players[decision.NewHost] = newHost
+
+	// Any Host-grace timer was for the previous Host; the badge
+	// has moved, so cancel it.
+	g.cancelHostGraceLocked()
+
+	snapshot := g.rosterLocked()
+	g.mu.Unlock()
+
+	g.emit(Event{Kind: HostChanged, Player: newHost, Roster: snapshot, Notice: decision.Notice})
+	return nil
+}
+
+// startHostGraceLocked starts (or restarts) the auto-migration
+// grace timer for the named seat. Callers hold g.mu.
+func (g *GameSession) startHostGraceLocked(name string) {
+	if g.hostGraceTimer != nil {
+		g.hostGraceTimer.Stop()
+	}
+	g.hostGraceGen++
+	gen := g.hostGraceGen
+	g.hostGraceTimer = time.AfterFunc(g.hostGraceDuration, func() {
+		g.handleHostGraceExpire(name, gen)
+	})
+}
+
+// cancelHostGraceLocked stops the in-flight grace timer (if any)
+// and bumps the generation so a closure that has already started
+// running but has not yet entered handleHostGraceExpire sees it is
+// stale. Callers hold g.mu.
+func (g *GameSession) cancelHostGraceLocked() {
+	if g.hostGraceTimer != nil {
+		g.hostGraceTimer.Stop()
+		g.hostGraceTimer = nil
+	}
+	g.hostGraceGen++
+}
+
+// handleHostGraceExpire is invoked by time.AfterFunc when the
+// grace window elapses. It re-checks all state under the lock —
+// the timer may have fired after a Reconnect, Leave, or transfer
+// supersedes it — and migrates the Host badge if the state still
+// warrants it.
+func (g *GameSession) handleHostGraceExpire(name string, gen uint64) {
+	g.mu.Lock()
+	if gen != g.hostGraceGen {
+		// Stale fire: a later start/cancel superseded this timer.
+		g.mu.Unlock()
+		return
+	}
+	g.hostGraceTimer = nil
+	g.hostGraceGen++
+
+	seat, ok := g.players[name]
+	if !ok || seat.Connected || !seat.Host {
+		// State changed between fire and acquiring the lock.
+		g.mu.Unlock()
+		return
+	}
+
+	decision := hostpromote.Decide(
+		name,
+		g.promotionInputLocked(),
+		hostpromote.DisconnectGraceExpired,
+		"",
+	)
+	if decision.NewHost == "" || decision.NewHost == name {
+		g.mu.Unlock()
+		return
+	}
+
+	seat.Host = false
+	g.players[name] = seat
+	newSeat := g.players[decision.NewHost]
+	newSeat.Host = true
+	g.players[decision.NewHost] = newSeat
+
+	snapshot := g.rosterLocked()
+	notice := decision.Notice
+	g.mu.Unlock()
+
+	g.emit(Event{Kind: HostChanged, Player: newSeat, Roster: snapshot, Notice: notice})
 }
 
 // emit pushes an event non-blockingly. If no consumer is parked on
@@ -220,11 +491,30 @@ func (g *GameSession) emit(e Event) {
 type Registry struct {
 	mu       sync.RWMutex
 	sessions map[string]*GameSession
+
+	hostGraceDuration time.Duration
+}
+
+// RegistryOption configures a Registry at construction time.
+type RegistryOption func(*Registry)
+
+// WithHostGraceDuration overrides the default 15-second auto-
+// migrate grace window. Intended for tests that don't want to
+// wait 15 real seconds for the timer to fire.
+func WithHostGraceDuration(d time.Duration) RegistryOption {
+	return func(r *Registry) { r.hostGraceDuration = d }
 }
 
 // NewRegistry constructs an empty Registry.
-func NewRegistry() *Registry {
-	return &Registry{sessions: map[string]*GameSession{}}
+func NewRegistry(opts ...RegistryOption) *Registry {
+	r := &Registry{
+		sessions:          map[string]*GameSession{},
+		hostGraceDuration: DefaultHostGraceDuration,
+	}
+	for _, o := range opts {
+		o(r)
+	}
+	return r
 }
 
 // Create generates a fresh GameSession with a unique join code and
@@ -246,9 +536,10 @@ func (r *Registry) Create() *GameSession {
 	}
 
 	g := &GameSession{
-		code:    code,
-		players: map[string]Player{},
-		events:  make(chan Event),
+		code:              code,
+		players:           map[string]Player{},
+		events:            make(chan Event, 16),
+		hostGraceDuration: r.hostGraceDuration,
 	}
 	r.sessions[code] = g
 	return g

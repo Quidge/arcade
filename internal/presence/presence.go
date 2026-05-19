@@ -56,11 +56,37 @@ func (b *Broadcaster) Subscribe(ctx context.Context, conn *websocket.Conn) error
 	return nil
 }
 
+// Add registers conn for fan-out without driving the read loop.
+// The returned Subscription must be passed to Remove when the
+// caller's read loop exits. Use this variant when the caller
+// wants to read incoming frames itself (e.g. for client commands)
+// rather than discard them via CloseRead.
+func (b *Broadcaster) Add(conn *websocket.Conn) *Subscription {
+	s := &subscription{conn: conn}
+	b.add(s)
+	return &Subscription{s: s}
+}
+
+// Remove unregisters a Subscription previously returned by Add.
+// Idempotent.
+func (b *Broadcaster) Remove(sub *Subscription) {
+	if sub == nil || sub.s == nil {
+		return
+	}
+	b.remove(sub.s)
+}
+
+// Subscription is an opaque handle returned by Add and consumed
+// by Remove.
+type Subscription struct{ s *subscription }
+
 // Broadcast writes payload as a text message to every current
-// subscriber. Writes happen serially with a short per-write
-// deadline; any write that errors causes that subscriber's
-// connection to be force-closed, which will in turn cause its
-// Subscribe call to return through the normal lifecycle.
+// subscriber. One goroutine is fanned out per subscriber so a
+// slow or in-handshake connection cannot stall delivery to the
+// others. Each per-conn write uses a short deadline; any write
+// that errors causes that subscriber's connection to be force-
+// closed, which will in turn cause its Subscribe call (or the
+// caller's read loop) to return through the normal lifecycle.
 func (b *Broadcaster) Broadcast(payload []byte) {
 	b.mu.RLock()
 	subs := make([]*subscription, 0, len(b.subs))
@@ -69,16 +95,20 @@ func (b *Broadcaster) Broadcast(payload []byte) {
 	}
 	b.mu.RUnlock()
 
+	var wg sync.WaitGroup
 	for _, s := range subs {
-		ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
-		err := s.conn.Write(ctx, websocket.MessageText, payload)
-		cancel()
-		if err != nil {
-			// Force-close so the subscribed handler unblocks and the
-			// per-conn cleanup path runs in its own goroutine.
-			_ = s.conn.CloseNow()
-		}
+		wg.Add(1)
+		go func(s *subscription) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
+			err := s.conn.Write(ctx, websocket.MessageText, payload)
+			cancel()
+			if err != nil {
+				_ = s.conn.CloseNow()
+			}
+		}(s)
 	}
+	wg.Wait()
 }
 
 func (b *Broadcaster) add(s *subscription) {
