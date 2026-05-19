@@ -13,6 +13,8 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+Add images (such as screenshots or other assets) to issues or pull requests or comments by using the `gh-image` skill.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue.
