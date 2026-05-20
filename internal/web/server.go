@@ -1001,6 +1001,21 @@ func rosterNames(session *gamesession.GameSession) []string {
 // round-state with the seat's accumulated Draft + submitted flag
 // + the active deadline. In RoundComplete it sends a unicast
 // round-ended.
+//
+// We considered lifting this switch into a separate PhaseSnapshot
+// module (see scratch/improve-arch-session-1.md candidate #3).
+// Deferred: writePhaseSnapshot is a thin dispatch over already-
+// deep builders (buildRoundStateMsg, buildRevealStateMsg, the
+// roundEndedMsg marshal), has exactly one caller, and runs on
+// the only transport ADR 0007 commits us to. Extracting it would
+// relocate rather than concentrate complexity (deletion-test
+// failure) and would not unlock any test that the per-builder
+// unit tests do not already cover. Reconsider when a second
+// caller appears (e.g. a polling REST or admin "fetch state"
+// endpoint), a second transport joins WS (SSE, long-poll), or
+// snapshot composition gains behavior beyond switch-and-marshal
+// (diff-since-last, compression, per-client capability
+// negotiation).
 func (s *Server) writePhaseSnapshot(conn *websocket.Conn, session *gamesession.GameSession, room *roomState, name string) error {
 	st, roundNum := session.Phase()
 	switch st {
