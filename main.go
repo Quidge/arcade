@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/quidge/scribble/internal/gamesession"
@@ -62,7 +63,15 @@ func main() {
 	// established path convention without re-litigating it.
 	log.Printf("data dir %q (currently unused)", dataDir)
 
-	registry := gamesession.NewRegistry()
+	var registryOpts []gamesession.RegistryOption
+	if v := os.Getenv("SCRIBBLE_HOST_DISCONNECT_GRACE_SECONDS"); v != "" {
+		secs, err := strconv.Atoi(v)
+		if err != nil || secs <= 0 {
+			log.Fatalf("SCRIBBLE_HOST_DISCONNECT_GRACE_SECONDS must be a positive integer (seconds), got %q", v)
+		}
+		registryOpts = append(registryOpts, gamesession.WithHostGraceDuration(time.Duration(secs)*time.Second))
+	}
+	registry := gamesession.NewRegistry(registryOpts...)
 	srvWeb := web.New(registry, gitSHA)
 
 	mux := http.NewServeMux()

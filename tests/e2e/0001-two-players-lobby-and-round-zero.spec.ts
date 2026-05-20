@@ -189,9 +189,46 @@ test.describe('Scenario 0001 — host management', () => {
       await expect(bob.page.locator('#connected-panel')).toBeHidden();
     });
 
-    await test.step('Alice\'s roster loses Bob\'s seat', async () => {
+    await test.step('Alice\'s roster loses Bob\'s seat and shows a "Bob left the game" notice', async () => {
       await expect(alice.page.locator('#roster li')).toHaveCount(1);
       await expect(rosterRow(alice.page, 'Bob')).toHaveCount(0);
+      await expect(alice.page.locator('#notice-stack')).toContainText('Bob left the game');
+    });
+  });
+
+  test('Voluntary Host Leave transfers Host immediately, with no grace wait', async ({ twoPlayerLobby }) => {
+    const { alice, bob } = twoPlayerLobby;
+
+    await test.step('Alice (Host) hands Host to Bob via Make Host', async () => {
+      await rosterRow(alice.page, 'Bob').getByRole('button', { name: 'Make Host' }).click();
+      await expect(rosterRow(bob.page, 'Bob').locator('.host-badge')).toHaveText('Host');
+    });
+
+    bob.page.on('dialog', dialog => dialog.accept());
+
+    await test.step('Bob (now Host) clicks Leave; Host moves to Alice the same tick', async () => {
+      await bob.page.getByRole('button', { name: 'Leave game' }).click();
+      await expect(rosterRow(alice.page, 'Alice').locator('.host-badge')).toHaveText('Host');
+      await expect(alice.page.locator('#notice-stack')).toContainText('Bob left the game — Alice is now the Host');
+    });
+  });
+
+  test('Host auto-migrates after the disconnect grace expires; the original Host does not reclaim on rejoin', async ({ browser, twoPlayerLobby }) => {
+    const { alice, bob, lobbyURL } = twoPlayerLobby;
+
+    await test.step('Alice (Host) closes her tab; after the grace, Host moves to Bob with a notice', async () => {
+      await alice.context.close();
+      await expect(rosterRow(bob.page, 'Bob').locator('.host-badge')).toHaveText('Host');
+      await expect(rosterRow(bob.page, 'Alice').locator('.host-badge')).toHaveCount(0);
+      await expect(bob.page.locator('#notice-stack')).toContainText('Alice was disconnected — Bob is now the Host');
+    });
+
+    await test.step('Alice reopens and rejoins; she does NOT auto-reclaim Host', async () => {
+      const aliceReturn = await openSecondSeat(browser, lobbyURL);
+      await joinAs(aliceReturn.page, 'Alice');
+      await expect(rosterRow(aliceReturn.page, 'Bob').locator('.host-badge')).toHaveText('Host');
+      await expect(rosterRow(aliceReturn.page, 'Alice').locator('.host-badge')).toHaveCount(0);
+      await aliceReturn.context.close();
     });
   });
 });
@@ -260,5 +297,77 @@ test.describe('Scenario 0001 — Round 0 starter Caption', () => {
         await expect(page.locator('#round-draw-panel')).toBeVisible();
       }
     });
+  });
+
+  test('Reconnect mid-round restores the partial draft into the textarea', async ({ browser, twoPlayerLobby }) => {
+    const { alice, bob, lobbyURL } = twoPlayerLobby;
+
+    await alice.page.locator('#timer-select').selectOption('60');
+    await alice.page.getByRole('button', { name: 'Start' }).click();
+    await expect(bob.page.locator('#round-panel')).toBeVisible();
+
+    await test.step('Bob types a partial Caption and closes his tab', async () => {
+      await bob.page.locator('#round-input').fill('the cat is on');
+      await expect(bob.page.locator('#round-input')).toHaveValue('the cat is on');
+      await bob.context.close();
+    });
+
+    await test.step('Bob reopens; round panel comes up with his draft pre-filled', async () => {
+      const bobReturn = await openSecondSeat(browser, lobbyURL);
+      await joinAs(bobReturn.page, 'Bob');
+      await expect(bobReturn.page.locator('#round-panel')).toBeVisible();
+      await expect(bobReturn.page.locator('#round-input')).toHaveValue('the cat is on');
+      await bobReturn.context.close();
+    });
+  });
+
+  test('Leave mid-round preserves the seat as disconnected (ADR 0009)', async ({ twoPlayerLobby }) => {
+    const { alice, bob } = twoPlayerLobby;
+
+    await alice.page.locator('#timer-select').selectOption('60');
+    await alice.page.getByRole('button', { name: 'Start' }).click();
+    await expect(bob.page.locator('#round-panel')).toBeVisible();
+
+    bob.page.on('dialog', dialog => dialog.accept());
+    await bob.page.getByRole('button', { name: 'Leave game' }).click();
+
+    await test.step('Bob\'s tab returns to name entry', async () => {
+      await expect(bob.page.locator('#name-panel')).toBeVisible();
+    });
+
+    await test.step('Alice\'s roster keeps Bob\'s seat, marked disconnected (not removed)', async () => {
+      const aliceRoster = alice.page.locator('#roster li');
+      await expect(aliceRoster).toHaveCount(2);
+      await expect(rosterRow(alice.page, 'Bob')).toHaveClass(/disconnected/);
+    });
+  });
+});
+
+test.describe('Scenario 0001 — failure modes', () => {
+  test('Unknown game session code returns a 404 page', async ({ page }) => {
+    const resp = await page.goto('/g/Z9Z-Z9Z');
+    expect(resp?.status()).toBe(404);
+    await expect(page.getByRole('heading', { name: 'Not found' })).toBeVisible();
+  });
+
+  test('Code containing visually-confusable characters (I, L, O, U) returns 404', async ({ page }) => {
+    const resp = await page.goto('/g/A4B-K9I');
+    expect(resp?.status()).toBe(404);
+  });
+
+  test('Lobby rejects an over-cap join with the session-full error', async ({ browser, twoPlayerLobby }) => {
+    // MaxPlayers is currently clamped to 2 (see
+    // internal/gamesession/gamesession.go:37 — "TEMPORARY: clamped to
+    // 2 until N≥3 generalization slice"). When the cap moves to 8,
+    // bump this test's setup accordingly.
+    const { lobbyURL } = twoPlayerLobby;
+
+    const thirdCtx = await browser.newContext();
+    const third = await thirdCtx.newPage();
+    await third.goto(lobbyURL);
+    await third.getByLabel('Display name').fill('Charlie');
+    await third.getByRole('button', { name: 'Join', exact: true }).click();
+    await expect(third.locator('#name-error')).toContainText(/session is full/);
+    await thirdCtx.close();
   });
 });

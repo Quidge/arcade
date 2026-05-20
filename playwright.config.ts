@@ -13,7 +13,10 @@ export default defineConfig({
   },
   webServer: {
     command: 'go run .',
-    env: { ADDR: ':3030' },
+    env: {
+      ADDR: ':3030',
+      SCRIBBLE_HOST_DISCONNECT_GRACE_SECONDS: '1',
+    },
     url: 'http://localhost:3030/healthz',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
