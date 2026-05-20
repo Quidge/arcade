@@ -684,6 +684,18 @@ func contentKindForRound(r int) string {
 	return "drawing"
 }
 
+// Reveal pacing currently lives across this cluster of free
+// functions (canAdvanceReveal / seatConnected / driverFor) plus
+// buildRevealStateMsg below and the revealCursor primitive in
+// reveal_cursor.go. We considered lifting them into a single deep
+// Reveal module that owns the cursor, driver re-evaluation, and
+// snapshot composition (see scratch/improve-arch-session-1.md
+// candidate #1). Deferred: no current scenario forces the move and
+// the wire-side orchestration is straightforward. Reconsider if
+// Reveal grows new pacing controls (rewind, skip-to-full, jump to
+// a specific Chain) — that is when the locality cost of leaving it
+// spread becomes real.
+
 // canAdvanceReveal returns true if actor is allowed to send a
 // reveal-advance command for the Chain whose starter is named. Per
 // ADR 0011 the rule is re-evaluated on every command: the starter
