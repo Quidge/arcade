@@ -199,6 +199,130 @@
 		color: var(--muted);
 		margin: 0 0 0.75rem;
 	}
+	.round-prompt-drawing {
+		font-size: 1.15rem;
+		font-weight: 500;
+		color: var(--fg);
+		margin: 0 0 0.75rem;
+		padding: 0.6rem 0.75rem;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 0.4rem;
+	}
+	.canvas-wrap {
+		position: relative;
+		width: 100%;
+		max-width: 32rem;
+		aspect-ratio: 1 / 1;
+		margin: 0 auto 0.75rem;
+		background: #ffffff;
+		border: 1px solid var(--border);
+		border-radius: 0.4rem;
+		touch-action: none;
+		overflow: hidden;
+	}
+	.canvas-wrap canvas {
+		width: 100%;
+		height: 100%;
+		display: block;
+		cursor: crosshair;
+	}
+	.reveal-header {
+		font-size: 1.2rem;
+		margin: 0 0 0.5rem;
+	}
+	.reveal-meta {
+		color: var(--muted);
+		font-size: 0.9rem;
+		margin: 0 0 1rem;
+	}
+	.reveal-driver-pill {
+		display: inline-block;
+		font-size: 0.78rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		background: var(--badge-bg);
+		color: var(--badge-fg);
+		padding: 0.1rem 0.5rem;
+		border-radius: 0.25rem;
+		margin-left: 0.4rem;
+	}
+	.reveal-entries {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+	.reveal-entry {
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		padding: 0.75rem;
+		background: var(--surface);
+	}
+	.reveal-entry-head {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin: 0 0 0.5rem;
+		font-size: 0.85rem;
+		color: var(--muted);
+	}
+	.reveal-author {
+		font-weight: 600;
+		color: var(--fg);
+	}
+	.reveal-ghost-tag {
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		background: var(--badge-bg);
+		color: var(--badge-fg);
+		padding: 0.1rem 0.5rem;
+		border-radius: 0.25rem;
+	}
+	.reveal-caption {
+		font-size: 1.1rem;
+		margin: 0;
+	}
+	.reveal-drawing {
+		width: 100%;
+		max-width: 24rem;
+		aspect-ratio: 1 / 1;
+		background: #ffffff;
+		border: 1px solid var(--border);
+		border-radius: 0.4rem;
+		display: block;
+		margin: 0;
+	}
+	.reveal-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-top: 1rem;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+	.reveal-watching {
+		color: var(--muted);
+		font-style: italic;
+	}
+	.end-game-row {
+		margin-top: 0.5rem;
+		display: flex;
+		justify-content: flex-end;
+	}
+	.ended-panel {
+		text-align: center;
+		padding: 2rem 1rem;
+	}
+	.ended-panel h2 {
+		font-size: 1.4rem;
+		margin: 0 0 0.5rem;
+	}
+	.ended-panel a {
+		color: var(--accent-strong);
+	}
 </style>
 
 <h1>Lobby</h1>
@@ -243,9 +367,9 @@
 </section>
 
 <section id="round-panel" class="lobby-panel hidden">
-	<h2>Round 0 — Starter Caption</h2>
-	<p class="round-prompt">Invent the first Caption for your Chain.</p>
-	<p class="round-hint">One sentence. Anything goes.</p>
+	<h2 id="round-heading">Round 0 — Starter Caption</h2>
+	<p id="round-prompt-text" class="round-prompt">Invent the first Caption for your Chain.</p>
+	<p id="round-hint" class="round-hint">One sentence. Anything goes.</p>
 	<textarea id="round-input" class="round-textarea" maxlength="500" placeholder="e.g. a cat playing a tiny piano"></textarea>
 	<div id="round-submitted-banner" class="round-submitted hidden">Submitted — waiting for others…</div>
 	<div class="round-row">
@@ -257,9 +381,50 @@
 	</div>
 </section>
 
+<section id="round-draw-panel" class="lobby-panel hidden">
+	<h2>Round 1 — Drawing</h2>
+	<p id="round-draw-prompt" class="round-prompt-drawing"></p>
+	<div class="canvas-wrap">
+		<canvas id="round-canvas" width="600" height="600"></canvas>
+	</div>
+	<div id="round-draw-submitted-banner" class="round-submitted hidden">Submitted — waiting for others…</div>
+	<div class="round-row">
+		<span id="round-draw-countdown" class="round-countdown"></span>
+		<span class="round-actions">
+			<button id="round-undo-btn" class="btn-mini" type="button">Undo last stroke</button>
+			<button id="round-draw-submit-btn" class="btn" type="button">Submit</button>
+			<button id="round-draw-advance-btn" class="btn-mini danger hidden" type="button">Force advance</button>
+		</span>
+	</div>
+</section>
+
 <section id="round-complete-panel" class="lobby-panel hidden">
-	<h2>Round 0 complete</h2>
-	<p class="round-complete">More game flow coming soon.</p>
+	<h2 id="round-complete-heading">Round complete</h2>
+	<p class="round-complete">Setting up the next step…</p>
+</section>
+
+<section id="reveal-panel" class="lobby-panel hidden">
+	<h2 id="reveal-header" class="reveal-header"></h2>
+	<p id="reveal-meta" class="reveal-meta"></p>
+	<div id="reveal-entries" class="reveal-entries"></div>
+	<div class="reveal-row">
+		<span id="reveal-driver-line" class="reveal-watching"></span>
+		<span class="round-actions">
+			<button id="reveal-next-btn" class="btn hidden" type="button">Next</button>
+		</span>
+	</div>
+</section>
+
+<section id="ended-panel" class="lobby-panel ended-panel hidden">
+	<h2>Thanks for playing!</h2>
+	<p>The host ended the game.</p>
+	<p><a href="/">Back to home</a></p>
+</section>
+
+<section id="host-end-game-panel" class="hidden">
+	<div class="end-game-row">
+		<button id="end-game-btn" class="btn-mini danger" type="button">End game</button>
+	</div>
 </section>
 
 <section id="share-panel" class="lobby-panel hidden">
@@ -292,23 +457,53 @@
 	const startBtn = document.getElementById("start-btn");
 
 	const roundPanel = document.getElementById("round-panel");
+	const roundHeading = document.getElementById("round-heading");
+	const roundPromptText = document.getElementById("round-prompt-text");
+	const roundHint = document.getElementById("round-hint");
 	const roundInput = document.getElementById("round-input");
 	const roundCountdown = document.getElementById("round-countdown");
 	const roundSubmitBtn = document.getElementById("round-submit-btn");
 	const roundAdvanceBtn = document.getElementById("round-advance-btn");
 	const roundSubmittedBanner = document.getElementById("round-submitted-banner");
 	const roundCompletePanel = document.getElementById("round-complete-panel");
+	const roundCompleteHeading = document.getElementById("round-complete-heading");
+
+	const roundDrawPanel = document.getElementById("round-draw-panel");
+	const roundDrawPrompt = document.getElementById("round-draw-prompt");
+	const roundDrawCountdown = document.getElementById("round-draw-countdown");
+	const roundDrawSubmitBtn = document.getElementById("round-draw-submit-btn");
+	const roundDrawAdvanceBtn = document.getElementById("round-draw-advance-btn");
+	const roundUndoBtn = document.getElementById("round-undo-btn");
+	const roundDrawSubmittedBanner = document.getElementById("round-draw-submitted-banner");
+	const roundCanvas = document.getElementById("round-canvas");
+
+	const revealPanel = document.getElementById("reveal-panel");
+	const revealHeaderEl = document.getElementById("reveal-header");
+	const revealMetaEl = document.getElementById("reveal-meta");
+	const revealEntriesEl = document.getElementById("reveal-entries");
+	const revealNextBtn = document.getElementById("reveal-next-btn");
+	const revealDriverLine = document.getElementById("reveal-driver-line");
+
+	const endedPanel = document.getElementById("ended-panel");
+	const hostEndGamePanel = document.getElementById("host-end-game-panel");
+	const endGameBtn = document.getElementById("end-game-btn");
 
 	const sharePanel = document.getElementById("share-panel");
 	const shareLink = document.getElementById("share-link");
 	const copyBtn = document.getElementById("copy-link");
 	const copyStatus = document.getElementById("copy-status");
 
-	let phase = "lobby"; // "lobby" | "round" | "complete"
+	let phase = "lobby"; // "lobby" | "round" | "round-draw" | "complete" | "reveal" | "ended"
 	let deadlineMS = null;
 	let countdownTimer = null;
 	let submitted = false;
 	let viewerIsHost = false;
+
+	// Drawing state for Round 1 (and any future drawing round).
+	let drawStrokes = [];      // [ [{x,y},...], ... ] in normalized 0..1 coords
+	let drawingActive = false; // pointer is currently down
+	let activeStroke = null;
+	let drawingDisabled = false;
 
 	let myName = null;
 	let ws = null;
@@ -374,6 +569,12 @@
 		} else {
 			roundAdvanceBtn.classList.add("hidden");
 		}
+		if (viewerIsHost && phase === "round-draw") {
+			roundDrawAdvanceBtn.classList.remove("hidden");
+		} else {
+			roundDrawAdvanceBtn.classList.add("hidden");
+		}
+		updateEndGameVisibility();
 		for (const p of players) {
 			const li = document.createElement("li");
 			const nameSpan = document.createElement("span");
@@ -439,7 +640,11 @@
 		} else if (msg.type === "round-state") {
 			enterRound(msg);
 		} else if (msg.type === "round-ended") {
-			enterRoundComplete();
+			enterRoundComplete(msg);
+		} else if (msg.type === "reveal-state") {
+			enterReveal(msg);
+		} else if (msg.type === "game-ended") {
+			enterEnded();
 		}
 	}
 
@@ -455,15 +660,66 @@
 		if (deadlineMS === null) {
 			roundCountdown.textContent = "";
 			roundCountdown.classList.remove("urgent");
+			roundDrawCountdown.textContent = "";
+			roundDrawCountdown.classList.remove("urgent");
 			return;
 		}
 		const remaining = deadlineMS - Date.now();
-		roundCountdown.textContent = "Time left: " + fmtCountdown(remaining);
+		const txt = "Time left: " + fmtCountdown(remaining);
+		roundCountdown.textContent = txt;
+		roundDrawCountdown.textContent = txt;
 		if (remaining <= 10000) {
 			roundCountdown.classList.add("urgent");
+			roundDrawCountdown.classList.add("urgent");
 		} else {
 			roundCountdown.classList.remove("urgent");
+			roundDrawCountdown.classList.remove("urgent");
 		}
+	}
+
+	function redrawCanvas() {
+		drawStrokesOnto(roundCanvas, drawStrokes);
+	}
+
+	function drawStrokesOnto(canvas, strokes) {
+		if (!canvas || !canvas.getContext) return;
+		var ctx = canvas.getContext("2d");
+		var w = canvas.width;
+		var h = canvas.height;
+		ctx.fillStyle = "#ffffff";
+		ctx.fillRect(0, 0, w, h);
+		ctx.strokeStyle = "#000000";
+		ctx.lineWidth = Math.max(2, Math.round(w / 200));
+		ctx.lineCap = "round";
+		ctx.lineJoin = "round";
+		for (var i = 0; i < strokes.length; i++) {
+			var s = strokes[i];
+			if (!s || s.length === 0) continue;
+			ctx.beginPath();
+			ctx.moveTo(s[0].x * w, s[0].y * h);
+			if (s.length === 1) {
+				// Render a dot for one-point strokes.
+				ctx.lineTo(s[0].x * w + 0.01, s[0].y * h + 0.01);
+			} else {
+				for (var j = 1; j < s.length; j++) {
+					ctx.lineTo(s[j].x * w, s[j].y * h);
+				}
+			}
+			ctx.stroke();
+		}
+	}
+
+	function canvasPoint(ev) {
+		var rect = roundCanvas.getBoundingClientRect();
+		var x = (ev.clientX - rect.left) / rect.width;
+		var y = (ev.clientY - rect.top) / rect.height;
+		if (x < 0) x = 0; if (x > 1) x = 1;
+		if (y < 0) y = 0; if (y > 1) y = 1;
+		return { x: x, y: y };
+	}
+
+	function sendStrokes() {
+		sendCmd({ type: "draft", strokes: drawStrokes });
 	}
 
 	function clearCountdown() {
@@ -474,31 +730,70 @@
 	}
 
 	function enterRound(msg) {
-		phase = "round";
+		const kind = msg.content_kind || "caption";
 		deadlineMS = (typeof msg.deadline_ms === "number") ? msg.deadline_ms : null;
 		submitted = !!msg.submitted;
 		hostControls.classList.add("hidden");
-		roundPanel.classList.remove("hidden");
 		roundCompletePanel.classList.add("hidden");
-		var draftText = "";
-		if (msg.draft && typeof msg.draft.text === "string") {
-			draftText = msg.draft.text;
-		}
-		roundInput.value = draftText;
-		if (submitted) {
-			roundInput.disabled = true;
-			roundSubmitBtn.disabled = true;
-			roundSubmittedBanner.classList.remove("hidden");
+		revealPanel.classList.add("hidden");
+		endedPanel.classList.add("hidden");
+		if (kind === "drawing") {
+			phase = "round-draw";
+			roundPanel.classList.add("hidden");
+			roundDrawPanel.classList.remove("hidden");
+			var promptText = "";
+			if (msg.prompt && msg.prompt.kind === "caption" && typeof msg.prompt.text === "string") {
+				promptText = msg.prompt.text;
+			}
+			roundDrawPrompt.textContent = promptText;
+			drawStrokes = [];
+			if (msg.draft && Array.isArray(msg.draft.strokes)) {
+				drawStrokes = msg.draft.strokes.map(function (s) {
+					return (s || []).map(function (pt) { return { x: pt.x, y: pt.y }; });
+				});
+			}
+			redrawCanvas();
+			drawingDisabled = !!submitted;
+			roundDrawSubmitBtn.disabled = !!submitted;
+			roundUndoBtn.disabled = !!submitted;
+			if (submitted) {
+				roundDrawSubmittedBanner.classList.remove("hidden");
+			} else {
+				roundDrawSubmittedBanner.classList.add("hidden");
+			}
+			if (viewerIsHost) {
+				roundDrawAdvanceBtn.classList.remove("hidden");
+			} else {
+				roundDrawAdvanceBtn.classList.add("hidden");
+			}
 		} else {
-			roundInput.disabled = false;
-			roundSubmitBtn.disabled = false;
-			roundSubmittedBanner.classList.add("hidden");
+			phase = "round";
+			roundDrawPanel.classList.add("hidden");
+			roundPanel.classList.remove("hidden");
+			if (typeof msg.round === "number") {
+				roundHeading.textContent = "Round " + msg.round + " — Starter Caption";
+			}
+			var draftText = "";
+			if (msg.draft && typeof msg.draft.text === "string") {
+				draftText = msg.draft.text;
+			}
+			roundInput.value = draftText;
+			if (submitted) {
+				roundInput.disabled = true;
+				roundSubmitBtn.disabled = true;
+				roundSubmittedBanner.classList.remove("hidden");
+			} else {
+				roundInput.disabled = false;
+				roundSubmitBtn.disabled = false;
+				roundSubmittedBanner.classList.add("hidden");
+			}
+			if (viewerIsHost) {
+				roundAdvanceBtn.classList.remove("hidden");
+			} else {
+				roundAdvanceBtn.classList.add("hidden");
+			}
 		}
-		if (viewerIsHost) {
-			roundAdvanceBtn.classList.remove("hidden");
-		} else {
-			roundAdvanceBtn.classList.add("hidden");
-		}
+		updateEndGameVisibility();
 		clearCountdown();
 		tickCountdown();
 		if (deadlineMS !== null) {
@@ -506,12 +801,124 @@
 		}
 	}
 
-	function enterRoundComplete() {
+	function enterRoundComplete(msg) {
 		phase = "complete";
 		clearCountdown();
 		roundPanel.classList.add("hidden");
+		roundDrawPanel.classList.add("hidden");
 		hostControls.classList.add("hidden");
 		roundCompletePanel.classList.remove("hidden");
+		if (msg && typeof msg === "object" && Array.isArray(msg.entries)) {
+			// Heuristic: if the latest finalized entries are drawings,
+			// the round we just finished was a drawing round.
+			var hadDrawing = msg.entries.some(function (e) { return e.kind === "drawing"; });
+			roundCompleteHeading.textContent = hadDrawing
+				? "Round complete — drawings sealed"
+				: "Round complete — captions sealed";
+		}
+		updateEndGameVisibility();
+	}
+
+	function enterReveal(msg) {
+		phase = "reveal";
+		clearCountdown();
+		hostControls.classList.add("hidden");
+		roundPanel.classList.add("hidden");
+		roundDrawPanel.classList.add("hidden");
+		roundCompletePanel.classList.add("hidden");
+		endedPanel.classList.add("hidden");
+		revealPanel.classList.remove("hidden");
+		var starter = msg.starter || "?";
+		revealHeaderEl.textContent = starter + "'s Chain";
+		var modeLabel = msg.mode === "complete"
+			? "Game over"
+			: (msg.mode === "full" ? "Whole chain" : "Step " + ((msg.entries_visible || []).length));
+		revealMetaEl.textContent = modeLabel;
+		renderRevealEntries(msg.entries_visible || []);
+		var driver = msg.driver || "";
+		var amDriver = (driver && driver === myName);
+		if (msg.mode === "complete") {
+			revealNextBtn.classList.add("hidden");
+			revealDriverLine.textContent = "Reveal complete — host can end the game.";
+		} else if (amDriver) {
+			revealNextBtn.classList.remove("hidden");
+			revealNextBtn.disabled = false;
+			revealDriverLine.textContent = "You're driving.";
+		} else {
+			revealNextBtn.classList.add("hidden");
+			revealDriverLine.textContent = driver ? "Watching — " + driver + " is driving." : "Watching.";
+		}
+		updateEndGameVisibility();
+	}
+
+	function renderRevealEntries(entries) {
+		revealEntriesEl.innerHTML = "";
+		for (var i = 0; i < entries.length; i++) {
+			var e = entries[i];
+			var card = document.createElement("div");
+			card.className = "reveal-entry";
+
+			var head = document.createElement("div");
+			head.className = "reveal-entry-head";
+			var label = document.createElement("span");
+			label.textContent = "Round " + e.round + " · ";
+			head.appendChild(label);
+			var author = document.createElement("span");
+			author.className = "reveal-author";
+			author.textContent = e.author || "?";
+			head.appendChild(author);
+			if (e.ghost) {
+				var tag = document.createElement("span");
+				tag.className = "reveal-ghost-tag";
+				tag.textContent = e.ghost_label || ((e.author || "?") + "'s Ghost");
+				head.appendChild(tag);
+			}
+			card.appendChild(head);
+
+			if (e.kind === "caption") {
+				var p = document.createElement("p");
+				p.className = "reveal-caption";
+				p.textContent = e.text || "";
+				card.appendChild(p);
+			} else if (e.kind === "drawing") {
+				var canv = document.createElement("canvas");
+				canv.className = "reveal-drawing";
+				canv.width = 600;
+				canv.height = 600;
+				card.appendChild(canv);
+				// Defer draw until after attach so layout-derived size
+				// is available (we draw to the canvas's intrinsic
+				// pixel buffer, so layout doesn't matter for fidelity).
+				drawStrokesOnto(canv, e.strokes || []);
+			}
+			revealEntriesEl.appendChild(card);
+		}
+	}
+
+	function enterEnded() {
+		phase = "ended";
+		clearCountdown();
+		hostControls.classList.add("hidden");
+		roundPanel.classList.add("hidden");
+		roundDrawPanel.classList.add("hidden");
+		roundCompletePanel.classList.add("hidden");
+		revealPanel.classList.add("hidden");
+		hostEndGamePanel.classList.add("hidden");
+		connectedPanel.classList.add("hidden");
+		sharePanel.classList.add("hidden");
+		endedPanel.classList.remove("hidden");
+	}
+
+	function updateEndGameVisibility() {
+		// The Host's "End game" button is available throughout the
+		// GameSession (from Start onward) and disappears once the
+		// game has ended.
+		var inGame = (phase === "round" || phase === "round-draw" || phase === "complete" || phase === "reveal");
+		if (viewerIsHost && inGame) {
+			hostEndGamePanel.classList.remove("hidden");
+		} else {
+			hostEndGamePanel.classList.add("hidden");
+		}
 	}
 
 	function resetToNameEntry() {
@@ -531,6 +938,15 @@
 		// an error condition to surface.
 		if (leftVoluntarily) {
 			leftVoluntarily = false;
+			return;
+		}
+
+		// Host ended the game. The server broadcasts game-ended,
+		// then closes each conn with a normal-closure frame; the
+		// client has already entered the "Thanks for playing" view
+		// on the preceding envelope. Suppress the disconnect notice
+		// — the close is expected and the user already has context.
+		if (phase === "ended") {
 			return;
 		}
 
@@ -636,6 +1052,84 @@
 	roundAdvanceBtn.addEventListener("click", function () {
 		if (phase !== "round") return;
 		sendCmd({ type: "advance" });
+	});
+
+	// Drawing-round pointer events. Pointer Events covers mouse,
+	// touch, and stylus through one code path. A stroke begins on
+	// pointer-down and is captured into activeStroke; intermediate
+	// pointer-move events append samples; pointer-up commits the
+	// stroke into drawStrokes and ships the full updated list to
+	// the server (full-replace per ADR 0010).
+	roundCanvas.addEventListener("pointerdown", function (ev) {
+		if (phase !== "round-draw" || drawingDisabled) return;
+		ev.preventDefault();
+		try { roundCanvas.setPointerCapture(ev.pointerId); } catch (e) {}
+		drawingActive = true;
+		activeStroke = [canvasPoint(ev)];
+	});
+	roundCanvas.addEventListener("pointermove", function (ev) {
+		if (!drawingActive || phase !== "round-draw" || drawingDisabled) return;
+		ev.preventDefault();
+		activeStroke.push(canvasPoint(ev));
+		// Render the in-flight stroke alongside the committed list
+		// so the user sees ink as they move.
+		var preview = drawStrokes.concat([activeStroke]);
+		drawStrokesOnto(roundCanvas, preview);
+	});
+	function endStroke(ev) {
+		if (!drawingActive) return;
+		drawingActive = false;
+		try { roundCanvas.releasePointerCapture(ev.pointerId); } catch (e) {}
+		if (activeStroke && activeStroke.length > 0) {
+			drawStrokes.push(activeStroke);
+		}
+		activeStroke = null;
+		redrawCanvas();
+		sendStrokes();
+	}
+	roundCanvas.addEventListener("pointerup", endStroke);
+	roundCanvas.addEventListener("pointercancel", endStroke);
+	roundCanvas.addEventListener("pointerleave", function (ev) {
+		// pointerleave only fires when the pointer exits the canvas
+		// while still down; treat it like pointerup so the stroke
+		// is committed cleanly.
+		if (drawingActive) endStroke(ev);
+	});
+
+	roundUndoBtn.addEventListener("click", function () {
+		if (phase !== "round-draw" || drawingDisabled) return;
+		if (drawStrokes.length === 0) return;
+		drawStrokes.pop();
+		redrawCanvas();
+		sendStrokes();
+	});
+
+	roundDrawSubmitBtn.addEventListener("click", function () {
+		if (phase !== "round-draw" || drawingDisabled) return;
+		// Push the latest strokes once more for safety, then submit.
+		sendStrokes();
+		sendCmd({ type: "submit" });
+		drawingDisabled = true;
+		submitted = true;
+		roundDrawSubmitBtn.disabled = true;
+		roundUndoBtn.disabled = true;
+		roundDrawSubmittedBanner.classList.remove("hidden");
+	});
+
+	roundDrawAdvanceBtn.addEventListener("click", function () {
+		if (phase !== "round-draw") return;
+		sendCmd({ type: "advance" });
+	});
+
+	revealNextBtn.addEventListener("click", function () {
+		if (phase !== "reveal") return;
+		sendCmd({ type: "reveal-advance" });
+	});
+
+	endGameBtn.addEventListener("click", function () {
+		if (!viewerIsHost) return;
+		if (!confirm("End this game for everyone?")) return;
+		sendCmd({ type: "end-game" });
 	});
 
 	leaveBtn.addEventListener("click", function () {

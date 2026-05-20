@@ -59,14 +59,17 @@ type noticeMsg struct {
 }
 
 // clientCmd is the schema for messages clients send to the server
-// over the lobby + Round-0 WebSocket. Fields are populated only
-// for the verbs that need them; unmarshalling tolerates missing
-// fields.
+// over the lobby + Round + reveal WebSocket. Fields are populated
+// only for the verbs that need them; unmarshalling tolerates missing
+// fields. Strokes carries the full current Drawing for drawing-kind
+// draft updates (ADR 0010); Text carries the full current caption
+// for text-kind draft updates.
 type clientCmd struct {
-	Type    string `json:"type"`
-	Target  string `json:"target,omitempty"`
-	Text    string `json:"text,omitempty"`
-	Seconds *int   `json:"seconds,omitempty"`
+	Type    string          `json:"type"`
+	Target  string          `json:"target,omitempty"`
+	Text    string          `json:"text,omitempty"`
+	Strokes strokes.Drawing `json:"strokes,omitempty"`
+	Seconds *int            `json:"seconds,omitempty"`
 }
 
 //go:embed templates
@@ -144,6 +147,45 @@ type roundEndedMsg struct {
 	Entries []roundEndedEntry `json:"entries"`
 }
 
+// revealEntryMsg is one Entry in a reveal-state's accumulating
+// `entries_visible` view. Round is the position of the Entry on the
+// Chain (index 0 is the starter Caption, 1 is the first Drawing
+// response, etc.). Author is the seat that contributed the Entry —
+// or, for Ghost-filled slots, the absent seat whose Ghost stood in.
+type revealEntryMsg struct {
+	Round      int              `json:"round"`
+	Kind       string           `json:"kind"`
+	Text       string           `json:"text,omitempty"`
+	Strokes    []strokes.Stroke `json:"strokes,omitempty"`
+	Ghost      bool             `json:"ghost"`
+	GhostLabel string           `json:"ghost_label,omitempty"`
+	Author     string           `json:"author"`
+}
+
+// revealStateMsg is the full reveal view broadcast on every advance
+// and unicast on Reconnect-mid-reveal (ADR 0011). Driver is the
+// display name of the seat permitted to send the next reveal-advance
+// command, recomputed at send time from (starter, starterConnected,
+// currentHost) per ADR 0011's re-eval-per-advance rule. Mode is one
+// of "step", "full", or "complete".
+type revealStateMsg struct {
+	Type           string           `json:"type"`
+	ChainIndex     int              `json:"chain_index"`
+	Starter        string           `json:"starter"`
+	Driver         string           `json:"driver"`
+	Mode           string           `json:"mode"`
+	EntriesVisible []revealEntryMsg `json:"entries_visible"`
+	MoreChains     bool             `json:"more_chains"`
+}
+
+// gameEndedMsg is broadcast to every subscriber when the Host ends
+// the GameSession. The wire layer follows the broadcast by closing
+// each seat's WebSocket with a normal-closure frame.
+type gameEndedMsg struct {
+	Type   string `json:"type"`
+	Reason string `json:"reason"`
+}
+
 // Server holds the wired-up Registry, the per-session room states,
 // and the parsed templates. Construct via New.
 type Server struct {
@@ -216,13 +258,19 @@ func (r *roomState) seatConn(name string) *websocket.Conn {
 	return r.seatConns[name]
 }
 
-// cursor returns the room's reveal cursor. The cursor is
-// constructed up-front but not wired to any reveal flow at this
-// slice's scope; a future slice will populate it (via
-// newRevealCursor with the per-Chain Len values) at the
-// StateRoundComplete → StateReveal transition.
-func (r *roomState) cursor() *revealCursor {
-	return r.revealCursor
+// closeAllSeats writes a normal-closure frame to every live seat
+// connection in the room. Called after the game-ended broadcast so
+// each subscriber sees the envelope before its WebSocket closes.
+func (r *roomState) closeAllSeats() {
+	r.mu.Lock()
+	conns := make([]*websocket.Conn, 0, len(r.seatConns))
+	for _, c := range r.seatConns {
+		conns = append(conns, c)
+	}
+	r.mu.Unlock()
+	for _, c := range conns {
+		_ = c.Close(websocket.StatusNormalClosure, "game ended")
+	}
 }
 
 type templates struct {
@@ -550,9 +598,15 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		if !room.controller.HasSeat(selfName) {
 			return
 		}
-		// Round 0 ships text Drafts. Future Round types will
-		// dispatch on content_kind here.
-		room.drafts.Apply(roundNum, selfName, cmd.Text)
+		// Dispatch on the Round's content kind. Round 0 (and any
+		// even-numbered Round) is caption/text; Round 1 (and any
+		// odd-numbered Round) is drawing/strokes.
+		switch contentKindForRound(roundNum) {
+		case "caption":
+			room.drafts.Apply(roundNum, selfName, cmd.Text)
+		case "drawing":
+			room.strokeDrafts.Apply(roundNum, selfName, cmd.Strokes)
+		}
 	case "submit":
 		st, roundNum := session.Phase()
 		if st != gamesession.StateRoundActive {
@@ -562,7 +616,12 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		// controller, so the snapshot inside OnEnd matches what
 		// the seat last sent. The controller no longer touches
 		// any Draft store directly.
-		room.drafts.Submit(roundNum, selfName)
+		switch contentKindForRound(roundNum) {
+		case "caption":
+			room.drafts.Submit(roundNum, selfName)
+		case "drawing":
+			room.strokeDrafts.Submit(roundNum, selfName)
+		}
 		if err := room.controller.Submit(selfName); err != nil {
 			log.Printf("submit by %s: %v", selfName, err)
 		}
@@ -573,9 +632,89 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		if err := room.controller.ForceAdvance(); err != nil {
 			log.Printf("force-advance by %s: %v", selfName, err)
 		}
+	case "reveal-advance":
+		st, _ := session.Phase()
+		if st != gamesession.StateReveal {
+			return
+		}
+		ci, _, mode := room.revealCursor.Step()
+		if mode == revealModeComplete {
+			return
+		}
+		starter := room.chains.Starter(ci)
+		if !canAdvanceReveal(selfName, starter, session) {
+			log.Printf("reveal-advance denied actor=%s starter=%s", selfName, starter)
+			return
+		}
+		room.revealCursor.Advance()
+		s.broadcastRevealState(session, room)
+	case "end-game":
+		if currentHost(session) != selfName {
+			return
+		}
+		st, _ := session.Phase()
+		if st == gamesession.StateEnded {
+			return
+		}
+		if err := session.End(selfName); err != nil {
+			log.Printf("end-game by %s: %v", selfName, err)
+			return
+		}
+		payload, err := json.Marshal(gameEndedMsg{Type: "game-ended", Reason: "host"})
+		if err != nil {
+			log.Printf("marshal game-ended: %v", err)
+			return
+		}
+		room.broadcaster.Broadcast(payload)
+		room.closeAllSeats()
 	default:
 		log.Printf("ws cmd unknown type %q from %s", cmd.Type, selfName)
 	}
+}
+
+// contentKindForRound maps a Round number to the slot kind every
+// seat fills during that Round. Telestrations alternates caption →
+// drawing: Round 0 is caption (the starter Caption), Round 1 is a
+// drawing response, Round 2 is a guess Caption, etc. The N=2 slice
+// only exercises Rounds 0 and 1, but the formula generalizes.
+func contentKindForRound(r int) string {
+	if r%2 == 0 {
+		return "caption"
+	}
+	return "drawing"
+}
+
+// canAdvanceReveal returns true if actor is allowed to send a
+// reveal-advance command for the Chain whose starter is named. Per
+// ADR 0011 the rule is re-evaluated on every command: the starter
+// drives when Connected; the current Host drives otherwise. A
+// starter who Reconnects mid-reveal-of-their-own-Chain regains the
+// driver role on the next attempted advance.
+func canAdvanceReveal(actor, starter string, session *gamesession.GameSession) bool {
+	if seatConnected(session, starter) {
+		return actor == starter
+	}
+	return actor == currentHost(session)
+}
+
+// seatConnected reports whether the named seat is currently
+// connected. An unknown seat returns false.
+func seatConnected(session *gamesession.GameSession, name string) bool {
+	for _, p := range session.Roster() {
+		if p.Name == name {
+			return p.Connected
+		}
+	}
+	return false
+}
+
+// driverFor returns the display name of the current driver for the
+// Chain whose starter is named, computed at call time per ADR 0011.
+func driverFor(session *gamesession.GameSession, starter string) string {
+	if seatConnected(session, starter) {
+		return starter
+	}
+	return currentHost(session)
 }
 
 // startRound kicks off the Round controller for roundNum and
@@ -618,70 +757,111 @@ func (s *Server) startRound(session *gamesession.GameSession, room *roomState, r
 }
 
 // buildRoundStateMsg constructs the round-state payload for one
-// seat at roundNum. For Round 0 the content kind is "caption" and
-// there is no prompt; future Round types override these from the
-// chain.Store and the appropriate Draft store. The Draft field is
-// always present — empty payload for a freshly-started Round, or
-// the seat's accumulated Draft on Reconnect.
+// seat at roundNum. The content kind is determined by the Round —
+// even Rounds are caption, odd Rounds are drawing — and the prompt,
+// when present, is read from chain.Store via PromptFor (the previous
+// Entry on the seat's currently-assigned Chain). The Draft field
+// carries the seat's accumulated input from the matching Draft store.
 func buildRoundStateMsg(room *roomState, roundNum int, seat string, deadlineMS *int64) roundStateMsg {
-	// Round 0 is currently the only shipped Round and is always
-	// text/caption. The dispatch below pins this slice; when
-	// Round 1 ships, contentKind and the Draft-store lookup will
-	// vary per Round.
-	contentKind := "caption"
-	textSnap := room.drafts.Get(roundNum, seat)
-	return roundStateMsg{
+	kind := contentKindForRound(roundNum)
+	msg := roundStateMsg{
 		Type:        "round-state",
 		Round:       roundNum,
 		DeadlineMS:  deadlineMS,
-		ContentKind: contentKind,
-		Prompt:      nil,
-		Draft: draftPayload{
-			Kind: "text",
-			Text: textSnap.Text,
-		},
-		Submitted: textSnap.Submitted,
+		ContentKind: kind,
 	}
+	if roundNum > 0 {
+		if prev, ok := room.chains.PromptFor(roundNum, seat); ok {
+			msg.Prompt = promptFromEntry(prev)
+		}
+	}
+	switch kind {
+	case "caption":
+		snap := room.drafts.Get(roundNum, seat)
+		msg.Draft = draftPayload{Kind: "text", Text: snap.Text}
+		msg.Submitted = snap.Submitted
+	case "drawing":
+		snap := room.strokeDrafts.Get(roundNum, seat)
+		msg.Draft = draftPayload{Kind: "strokes", Strokes: []strokes.Stroke(snap.Strokes)}
+		msg.Submitted = snap.Submitted
+	}
+	return msg
+}
+
+// promptFromEntry maps a chain.Entry to its wire-format promptMsg.
+func promptFromEntry(e chain.Entry) *promptMsg {
+	p := &promptMsg{}
+	switch e.Kind {
+	case chain.EntryCaption:
+		p.Kind = "caption"
+		p.Text = e.Text
+	case chain.EntryDrawing:
+		p.Kind = "drawing"
+		p.Strokes = e.Strokes
+	}
+	return p
 }
 
 // onRoundEnd is invoked by the Round controller's OnEnd callback.
 // It assembles chain.Entry values from the appropriate Draft store
 // (with Ghost-fill for empty seats), appends them to the Chain
-// store, advances the session phase, and broadcasts a round-ended
-// envelope so clients can swap to the post-Round placeholder.
+// store, advances the session phase, broadcasts a round-ended
+// envelope so clients can swap, and then either begins the next
+// Round (with per-seat unicast round-state) or transitions into
+// the reveal phase (broadcast reveal-state).
 //
 // The callback is the only writer of chain.Store from production
-// code paths; the controller now hands us (round, seats, reason)
-// and we own assembly. Future Round types (Round 1+ Drawings)
-// dispatch on roundNum here to seal the strokes store and build
-// EntryDrawing values instead.
+// code paths; the controller hands us (round, seats, reason) and we
+// own assembly. The branch on contentKindForRound determines which
+// Draft store and Ghost slot are consulted for each seat.
 func (s *Server) onRoundEnd(session *gamesession.GameSession, room *roomState, roundNum int, seats []string) {
 	picker := room.ghosts.Picker()
 	entries := make([]chain.Entry, 0, len(seats))
-	// Round 0 is text/caption. Subsequent Round types branch here.
+	kind := contentKindForRound(roundNum)
 	for _, seat := range seats {
-		snap := room.drafts.Get(roundNum, seat)
-		if snap.Text == "" {
-			entries = append(entries, chain.Entry{
-				Player: seat,
-				Kind:   chain.EntryCaption,
-				Ghost:  true,
-				Text:   picker.Pick(seat, ghost.StarterCaption),
-			})
-			continue
+		switch kind {
+		case "caption":
+			snap := room.drafts.Get(roundNum, seat)
+			if snap.Text == "" {
+				ghostKind := ghost.StarterCaption
+				if roundNum > 0 {
+					ghostKind = ghost.GuessCaption
+				}
+				entries = append(entries, chain.Entry{
+					Player: seat,
+					Kind:   chain.EntryCaption,
+					Ghost:  true,
+					Text:   picker.Pick(seat, ghostKind),
+				})
+			} else {
+				entries = append(entries, chain.Entry{
+					Player: seat,
+					Kind:   chain.EntryCaption,
+					Ghost:  false,
+					Text:   snap.Text,
+				})
+			}
+		case "drawing":
+			snap := room.strokeDrafts.Get(roundNum, seat)
+			if len(snap.Strokes) == 0 {
+				entries = append(entries, chain.Entry{
+					Player:  seat,
+					Kind:    chain.EntryDrawing,
+					Ghost:   true,
+					Strokes: picker.PickDrawing(seat),
+				})
+			} else {
+				entries = append(entries, chain.Entry{
+					Player:  seat,
+					Kind:    chain.EntryDrawing,
+					Ghost:   false,
+					Strokes: []strokes.Stroke(snap.Strokes),
+				})
+			}
 		}
-		entries = append(entries, chain.Entry{
-			Player: seat,
-			Kind:   chain.EntryCaption,
-			Ghost:  false,
-			Text:   snap.Text,
-		})
 	}
 
-	// Plumb finalized entries into the Chain store. The Chain
-	// store is the durable home for Entries across Rounds; the
-	// roomState's lastEntries copy is the convenience snapshot
-	// used by reconnect-mid-RoundComplete.
+	// Plumb finalized entries into the Chain store.
 	for _, e := range entries {
 		if err := room.chains.Append(roundNum, e.Player, e); err != nil {
 			log.Printf("chain.Append round=%d seat=%s: %v", roundNum, e.Player, err)
@@ -694,6 +874,7 @@ func (s *Server) onRoundEnd(session *gamesession.GameSession, room *roomState, r
 	}
 	room.mu.Lock()
 	room.lastEntries = entries
+	secs := room.roundTimerSeconds
 	room.mu.Unlock()
 
 	payload, err := json.Marshal(roundEndedMsg{
@@ -705,6 +886,118 @@ func (s *Server) onRoundEnd(session *gamesession.GameSession, room *roomState, r
 		return
 	}
 	room.broadcaster.Broadcast(payload)
+
+	// Decide what comes next: another Round, or the reveal phase.
+	// The chain.Store roster is N seats, and the GameSession runs N
+	// Rounds (one Entry per seat per Chain).
+	n := room.chains.N()
+	host := currentHost(session)
+	if roundNum+1 < n {
+		if err := session.BeginRound(host, roundNum+1); err != nil {
+			log.Printf("BeginRound %d by %s: %v", roundNum+1, host, err)
+			return
+		}
+		s.startRound(session, room, roundNum+1, secs, seats)
+		return
+	}
+
+	if err := session.BeginReveal(host); err != nil {
+		log.Printf("BeginReveal by %s: %v", host, err)
+		return
+	}
+	chainLens := make([]int, n)
+	for i := 0; i < n; i++ {
+		chainLens[i] = room.chains.Len(i)
+	}
+	room.mu.Lock()
+	room.revealCursor = newRevealCursor(chainLens)
+	room.mu.Unlock()
+	s.broadcastRevealState(session, room)
+}
+
+// broadcastRevealState builds the current reveal-state envelope and
+// fans it out to every subscriber.
+func (s *Server) broadcastRevealState(session *gamesession.GameSession, room *roomState) {
+	msg := buildRevealStateMsg(session, room)
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("marshal reveal-state: %v", err)
+		return
+	}
+	room.broadcaster.Broadcast(payload)
+}
+
+// buildRevealStateMsg snapshots the current cursor state and the
+// matching Chain entries into a reveal-state envelope. The cursor
+// is queried under no lock — its mutator (Advance) runs on the same
+// goroutine as buildRevealStateMsg's callers, so the read is
+// consistent.
+//
+// On the terminal "complete" mode we still emit the last Chain's
+// full entries so the client has something coherent to render until
+// the Host taps End game (per the issue's spec).
+func buildRevealStateMsg(session *gamesession.GameSession, room *roomState) revealStateMsg {
+	ci, ei, mode := room.revealCursor.Step()
+	n := room.chains.N()
+	msg := revealStateMsg{Type: "reveal-state", Mode: mode}
+	var visible []chain.Entry
+	var displayCi int
+	switch mode {
+	case revealModeStep:
+		full := room.chains.Entries(ci)
+		end := ei + 1
+		if end > len(full) {
+			end = len(full)
+		}
+		visible = full[:end]
+		displayCi = ci
+		msg.MoreChains = ci+1 < n
+	case revealModeFull:
+		visible = room.chains.Entries(ci)
+		displayCi = ci
+		msg.MoreChains = ci+1 < n
+	case revealModeComplete:
+		last := n - 1
+		if last < 0 {
+			msg.ChainIndex = -1
+			return msg
+		}
+		visible = room.chains.Entries(last)
+		displayCi = last
+		msg.MoreChains = false
+	}
+	msg.ChainIndex = displayCi
+	msg.Starter = room.chains.Starter(displayCi)
+	msg.Driver = driverFor(session, msg.Starter)
+	msg.EntriesVisible = wireRevealEntries(visible)
+	return msg
+}
+
+// wireRevealEntries maps Chain entries to the reveal wire shape.
+// The entry's position on the Chain is its Round number (index 0 is
+// the starter Caption from Round 0).
+func wireRevealEntries(entries []chain.Entry) []revealEntryMsg {
+	out := make([]revealEntryMsg, 0, len(entries))
+	for i, e := range entries {
+		w := revealEntryMsg{
+			Round:  i,
+			Ghost:  e.Ghost,
+			Author: e.Player,
+		}
+		switch e.Kind {
+		case chain.EntryCaption:
+			w.Kind = "caption"
+			w.Text = e.Text
+		case chain.EntryDrawing:
+			w.Kind = "drawing"
+			w.Strokes = e.Strokes
+		}
+		if e.Ghost {
+			w.GhostLabel = e.Player + "'s Ghost"
+		}
+		out = append(out, w)
+	}
+	return out
 }
 
 // wireEntriesFromChain maps a slice of chain.Entry to the wire
@@ -784,13 +1077,14 @@ func (s *Server) writePhaseSnapshot(conn *websocket.Conn, session *gamesession.G
 		defer cancel()
 		return conn.Write(ctx, websocket.MessageText, payload)
 	case gamesession.StateReveal:
-		// The reveal flow is not wired at this slice's scope. The
-		// reveal cursor is constructed up-front and lives on
-		// roomState ready for the next slice to drive it. For now
-		// a Reconnect during StateReveal returns no payload; the
-		// next slice will replace this with a unicast reveal-state.
-		_ = room.cursor()
-		return nil
+		msg := buildRevealStateMsg(session, room)
+		payload, err := json.Marshal(msg)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), wsWriteTimeout)
+		defer cancel()
+		return conn.Write(ctx, websocket.MessageText, payload)
 	case gamesession.StateEnded:
 		return nil
 	}
