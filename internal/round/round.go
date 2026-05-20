@@ -2,9 +2,9 @@
 // in-progress Round (which seats are active, which have submitted,
 // when the timer expires) and fires a callback at Round-end. The
 // controller is a pure domain module — no I/O, no WebSocket, no
-// JSON, no knowledge of Drafts or Ghosts. The caller assembles
-// Entries from the appropriate Draft store and the Ghost provider
-// inside its OnEnd callback.
+// JSON, no knowledge of Drafts or Ghosts. The caller (typically
+// roundcomplete.Materialize) assembles Entries from the appropriate
+// Draft store and the Ghost provider inside its OnEnd callback.
 //
 // Splitting the Drafts/Ghosts responsibilities out of Config makes
 // the controller reusable across Round types (text-Caption,

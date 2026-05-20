@@ -31,6 +31,7 @@ import (
 	"github.com/quidge/scribble/internal/joincode"
 	"github.com/quidge/scribble/internal/presence"
 	"github.com/quidge/scribble/internal/round"
+	"github.com/quidge/scribble/internal/roundcomplete"
 	"github.com/quidge/scribble/internal/seatconn"
 	"github.com/quidge/scribble/internal/strokes"
 )
@@ -598,10 +599,11 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		if !room.controller.HasSeat(selfName) {
 			return
 		}
-		// Dispatch on the Round's content kind. Round 0 (and any
-		// even-numbered Round) is caption/text; Round 1 (and any
-		// odd-numbered Round) is drawing/strokes.
-		switch contentKindForRound(roundNum) {
+		// Dispatch on the Round's content kind. The parity rule
+		// (even Rounds → caption, odd → drawing) lives in
+		// roundcomplete alongside the materialization that consumes
+		// it; here we just consult it to pick the right Draft store.
+		switch roundcomplete.ContentKindForRound(roundNum) {
 		case "caption":
 			room.drafts.Apply(roundNum, selfName, cmd.Text)
 		case "drawing":
@@ -616,7 +618,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		// controller, so the snapshot inside OnEnd matches what
 		// the seat last sent. The controller no longer touches
 		// any Draft store directly.
-		switch contentKindForRound(roundNum) {
+		switch roundcomplete.ContentKindForRound(roundNum) {
 		case "caption":
 			room.drafts.Submit(roundNum, selfName)
 		case "drawing":
@@ -670,18 +672,6 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 	default:
 		log.Printf("ws cmd unknown type %q from %s", cmd.Type, selfName)
 	}
-}
-
-// contentKindForRound maps a Round number to the slot kind every
-// seat fills during that Round. Telestrations alternates caption →
-// drawing: Round 0 is caption (the starter Caption), Round 1 is a
-// drawing response, Round 2 is a guess Caption, etc. The N=2 slice
-// only exercises Rounds 0 and 1, but the formula generalizes.
-func contentKindForRound(r int) string {
-	if r%2 == 0 {
-		return "caption"
-	}
-	return "drawing"
 }
 
 // Reveal pacing currently lives across this cluster of free
@@ -769,13 +759,14 @@ func (s *Server) startRound(session *gamesession.GameSession, room *roomState, r
 }
 
 // buildRoundStateMsg constructs the round-state payload for one
-// seat at roundNum. The content kind is determined by the Round —
-// even Rounds are caption, odd Rounds are drawing — and the prompt,
-// when present, is read from chain.Store via PromptFor (the previous
-// Entry on the seat's currently-assigned Chain). The Draft field
-// carries the seat's accumulated input from the matching Draft store.
+// seat at roundNum. The content kind is resolved through
+// roundcomplete.ContentKindForRound (even Rounds → caption, odd →
+// drawing) and the prompt, when present, is read from chain.Store
+// via PromptFor (the previous Entry on the seat's currently-
+// assigned Chain). The Draft field carries the seat's accumulated
+// input from the matching Draft store.
 func buildRoundStateMsg(room *roomState, roundNum int, seat string, deadlineMS *int64) roundStateMsg {
-	kind := contentKindForRound(roundNum)
+	kind := roundcomplete.ContentKindForRound(roundNum)
 	msg := roundStateMsg{
 		Type:        "round-state",
 		Round:       roundNum,
@@ -815,63 +806,19 @@ func promptFromEntry(e chain.Entry) *promptMsg {
 }
 
 // onRoundEnd is invoked by the Round controller's OnEnd callback.
-// It assembles chain.Entry values from the appropriate Draft store
-// (with Ghost-fill for empty seats), appends them to the Chain
-// store, advances the session phase, broadcasts a round-ended
-// envelope so clients can swap, and then either begins the next
-// Round (with per-seat unicast round-state) or transitions into
-// the reveal phase (broadcast reveal-state).
+// It delegates Entry materialization (Draft snapshot + Ghost-fill
+// per the Telestrations alternation rule) to roundcomplete, then
+// orchestrates the wire-side fallout: appends entries to the
+// Chain store, advances the session phase, broadcasts a
+// round-ended envelope so clients can swap, and either begins the
+// next Round (with per-seat unicast round-state) or transitions
+// into the reveal phase (broadcast reveal-state).
 //
 // The callback is the only writer of chain.Store from production
-// code paths; the controller hands us (round, seats, reason) and we
-// own assembly. The branch on contentKindForRound determines which
-// Draft store and Ghost slot are consulted for each seat.
+// code paths; roundcomplete.Materialize is pure and the chain
+// append loop here is the side-effect.
 func (s *Server) onRoundEnd(session *gamesession.GameSession, room *roomState, roundNum int, seats []string) {
-	picker := room.ghosts.Picker()
-	entries := make([]chain.Entry, 0, len(seats))
-	kind := contentKindForRound(roundNum)
-	for _, seat := range seats {
-		switch kind {
-		case "caption":
-			snap := room.drafts.Get(roundNum, seat)
-			if snap.Text == "" {
-				ghostKind := ghost.StarterCaption
-				if roundNum > 0 {
-					ghostKind = ghost.GuessCaption
-				}
-				entries = append(entries, chain.Entry{
-					Player: seat,
-					Kind:   chain.EntryCaption,
-					Ghost:  true,
-					Text:   picker.Pick(seat, ghostKind),
-				})
-			} else {
-				entries = append(entries, chain.Entry{
-					Player: seat,
-					Kind:   chain.EntryCaption,
-					Ghost:  false,
-					Text:   snap.Text,
-				})
-			}
-		case "drawing":
-			snap := room.strokeDrafts.Get(roundNum, seat)
-			if len(snap.Strokes) == 0 {
-				entries = append(entries, chain.Entry{
-					Player:  seat,
-					Kind:    chain.EntryDrawing,
-					Ghost:   true,
-					Strokes: picker.PickDrawing(seat),
-				})
-			} else {
-				entries = append(entries, chain.Entry{
-					Player:  seat,
-					Kind:    chain.EntryDrawing,
-					Ghost:   false,
-					Strokes: []strokes.Stroke(snap.Strokes),
-				})
-			}
-		}
-	}
+	entries := roundcomplete.Materialize(roundNum, seats, room.drafts, room.strokeDrafts, room.ghosts.Picker())
 
 	// Plumb finalized entries into the Chain store.
 	for _, e := range entries {
