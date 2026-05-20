@@ -8,7 +8,15 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
+    baseURL: 'http://localhost:3030',
     trace: 'on-first-retry',
+  },
+  webServer: {
+    command: 'go run .',
+    env: { ADDR: ':3030' },
+    url: 'http://localhost:3030/healthz',
+    reuseExistingServer: !process.env.CI,
+    timeout: 60_000,
   },
   projects: [
     {

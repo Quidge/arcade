@@ -51,7 +51,11 @@ test-unit:
 test-integration:
     go test -tags=integration ./tests/integration/...
 
-# run all test tiers
+# run end-to-end UI tests (Playwright)
+test-e2e:
+    pnpm test:e2e
+
+# run all Go test tiers (e2e is invoked separately; see test-e2e)
 test-all: test-unit test-integration
 
 # sync go.mod/go.sum to actual imports
