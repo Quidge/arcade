@@ -1,5 +1,11 @@
 {{define "content"}}
 <style>
+	/* ──────────────────────────────────────────────────────────────
+	   PROTOTYPE — round-0 waiting room
+	   Three variants gated by ?variant=A|B|C on this same route.
+	   See PROTOTYPE-WAITING-ROOM-NOTES.md next to this template.
+	   ────────────────────────────────────────────────────────────── */
+
 	.lobby-code {
 		font-size: 1.05rem;
 		color: var(--muted);
@@ -37,123 +43,32 @@
 		border-radius: 0.4rem;
 		font-size: 0.95rem;
 	}
-	.roster-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-	}
-	.roster-list li {
-		padding: 0.55rem 0;
-		border-bottom: 1px solid var(--border);
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-	.roster-list li:last-child { border-bottom: none; }
-	.roster-list .self { color: var(--accent-strong); font-weight: 500; }
-	.roster-list li.disconnected { color: var(--muted); }
-	.roster-list li.disconnected .self { color: var(--muted); }
-	.disconnected-tag {
-		font-size: 0.78rem;
-		color: var(--muted);
-		font-style: italic;
-		margin-left: 0.35rem;
-	}
-	.roster-actions {
-		margin-left: auto;
-		display: flex;
-		gap: 0.4rem;
-	}
-	.roster-actions .btn-mini {
-		font-size: 0.78rem;
-		padding: 0.2rem 0.55rem;
-		border-radius: 0.3rem;
-		border: 1px solid var(--border);
-		background: var(--surface);
-		color: var(--fg);
-		cursor: pointer;
-	}
-	.roster-actions .btn-mini:hover { background: var(--badge-bg); }
-	.roster-actions .btn-mini.danger { color: var(--danger-fg); }
-	.leave-row {
-		margin-top: 0.75rem;
-		display: flex;
-		justify-content: flex-end;
-	}
+	.hidden { display: none !important; }
+
+	/* Shared notice toast (floats top-right; variant-agnostic). */
 	.notice-stack {
-		margin-top: 0.75rem;
+		position: fixed;
+		top: 1rem;
+		right: 1rem;
 		display: flex;
 		flex-direction: column;
-		gap: 0.35rem;
+		gap: 0.4rem;
+		z-index: 60;
+		max-width: 22rem;
 	}
 	.notice {
-		padding: 0.45rem 0.65rem;
+		padding: 0.55rem 0.75rem;
 		background: var(--badge-bg);
 		color: var(--badge-fg);
-		border-radius: 0.35rem;
-		font-size: 0.9rem;
-	}
-	.host-badge {
-		display: inline-block;
-		font-size: 0.7rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		background: var(--badge-bg);
-		color: var(--badge-fg);
-		padding: 0.1rem 0.5rem;
-		border-radius: 0.25rem;
-	}
-	.roster-empty {
-		color: var(--muted);
-		font-style: italic;
-	}
-	.share-row {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-	.share-row .input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-	.hidden { display: none !important; }
-	.status-line {
-		font-size: 0.9rem;
-		color: var(--muted);
-		margin-top: 0.5rem;
-	}
-	.status-line.connected { color: var(--accent-strong); }
-	.host-controls {
-		margin-top: 0.75rem;
-		padding-top: 0.75rem;
-		border-top: 1px solid var(--border);
-		display: flex;
-		gap: 0.75rem;
-		align-items: center;
-		flex-wrap: wrap;
-	}
-	.host-controls label {
-		font-size: 0.9rem;
-		color: var(--muted);
-	}
-	.host-controls select {
-		padding: 0.4rem 0.6rem;
-		border: 1px solid var(--border);
 		border-radius: 0.4rem;
-		background: var(--surface);
-		font-family: inherit;
-		font-size: 0.95rem;
-	}
-	.host-controls .btn { padding: 0.5rem 1rem; }
-	.round-prompt {
-		font-size: 1.15rem;
-		color: var(--fg);
-		margin: 0 0 0.4rem;
-	}
-	.round-hint {
-		color: var(--muted);
 		font-size: 0.9rem;
-		margin: 0 0 1rem;
+		box-shadow: 0 4px 12px rgba(0,0,0,0.12);
 	}
+
+	/* Round-active + round-complete panels stay as-is from the
+	   previous lobby — they aren't part of this prototype. */
+	.round-prompt { font-size: 1.15rem; color: var(--fg); margin: 0 0 0.4rem; }
+	.round-hint { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; }
 	.round-textarea {
 		width: 100%;
 		min-height: 4.5rem;
@@ -194,10 +109,614 @@
 		border-radius: 0.35rem;
 		font-size: 0.9rem;
 	}
-	.round-complete {
-		font-size: 1.1rem;
+	.round-complete { font-size: 1.1rem; color: var(--muted); margin: 0 0 0.75rem; }
+
+	/* ──────────────────────────────────────────────────────────────
+	   Variant A — Campfire (radial)
+	   Players sit around a central host/share card.
+	   ────────────────────────────────────────────────────────────── */
+	.v-a-stage {
+		position: relative;
+		width: 100%;
+		max-width: 34rem;
+		aspect-ratio: 1 / 1;
+		margin: 0 auto;
+		/* Padding keeps seats at the cardinal points (N/E/S/W)
+		   from clipping outside the stage. The avatar (3rem) +
+		   label below sit centred on each anchor; 2rem padding
+		   gives them a safe gutter. */
+		padding: 1.75rem;
+		box-sizing: border-box;
+	}
+	.v-a-center {
+		position: absolute;
+		top: 50%; left: 50%;
+		transform: translate(-50%, -50%);
+		/* Hub diameter is 38% of stage; seats live at radius 36%
+		   so they sit just outside the hub without overlap. */
+		width: 38%;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 50%;
+		aspect-ratio: 1 / 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 0.5rem;
+		text-align: center;
+		box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+	}
+	.v-a-center-label {
+		font-size: 0.65rem;
 		color: var(--muted);
-		margin: 0 0 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+	}
+	.v-a-center-code {
+		font-size: 1.15rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		margin: 0.1rem 0 0.35rem;
+		line-height: 1;
+	}
+	.v-a-center-copy {
+		font-size: 0.7rem;
+		color: var(--muted);
+		background: transparent;
+		border: 1px solid var(--border);
+		border-radius: 0.3rem;
+		padding: 0.2rem 0.5rem;
+		cursor: pointer;
+	}
+	.v-a-center-copy:hover { background: var(--badge-bg); }
+	.v-a-seat {
+		position: absolute;
+		width: 4.25rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.2rem;
+		transform: translate(-50%, -50%);
+	}
+	.v-a-avatar {
+		width: 3rem;
+		height: 3rem;
+		border-radius: 50%;
+		background: var(--surface);
+		border: 2px dashed var(--border);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 700;
+		font-size: 1rem;
+		color: var(--muted);
+		position: relative;
+	}
+	.v-a-seat.occupied .v-a-avatar {
+		border-style: solid;
+		background: var(--badge-bg);
+		color: var(--badge-fg);
+	}
+	.v-a-seat.host .v-a-avatar { border-color: var(--accent-strong); box-shadow: 0 0 0 2px var(--accent-strong) inset; }
+	.v-a-seat.disconnected .v-a-avatar { opacity: 0.45; }
+	.v-a-seat.self .v-a-avatar { outline: 2px solid var(--accent); outline-offset: 2px; }
+	.v-a-crown {
+		position: absolute;
+		top: -0.55rem;
+		background: var(--accent-strong);
+		color: white;
+		padding: 0.05rem 0.4rem;
+		border-radius: 999px;
+		font-size: 0.6rem;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.v-a-name {
+		font-size: 0.78rem;
+		color: var(--fg);
+		max-width: 4.25rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.v-a-name.empty { color: var(--muted); font-style: italic; font-size: 0.72rem; }
+	/* Host-tappable seats — visual hint, no inline buttons so the
+	   seat box stays the same size whether or not actions exist. */
+	.v-a-seat.tappable { cursor: pointer; }
+	.v-a-seat.tappable:hover .v-a-avatar,
+	.v-a-seat.tappable:active .v-a-avatar {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+	/* Bottom-sheet for host's per-seat actions. Slides up from the
+	   bottom; covered by a translucent backdrop. */
+	.seat-sheet-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0,0,0,0.35);
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		z-index: 100;
+	}
+	.seat-sheet {
+		background: var(--surface);
+		border-top-left-radius: 1rem;
+		border-top-right-radius: 1rem;
+		width: 100%;
+		max-width: 28rem;
+		padding: 1.25rem 1rem 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		box-shadow: 0 -8px 24px rgba(0,0,0,0.2);
+	}
+	.seat-sheet h3 {
+		margin: 0 0 0.5rem;
+		font-size: 1rem;
+		text-align: center;
+	}
+	.seat-sheet button {
+		width: 100%;
+		padding: 0.7rem;
+		border-radius: 0.4rem;
+		border: 1px solid var(--border);
+		background: var(--bg);
+		font-size: 1rem;
+		cursor: pointer;
+	}
+	.seat-sheet button.danger { color: var(--danger-fg); border-color: var(--danger-fg); }
+	.seat-sheet button.cancel { background: transparent; color: var(--muted); border: none; }
+	/* Host controls + guest message live below the stage so the
+	   center hub can stay small enough to fit a mobile viewport. */
+	.v-a-controls {
+		margin-top: 0.5rem;
+		padding: 0.85rem 1rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.6rem;
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		justify-content: center;
+		flex-wrap: wrap;
+	}
+	.v-a-controls.guest { color: var(--muted); font-style: italic; font-size: 0.9rem; }
+	.v-a-controls select {
+		padding: 0.4rem 0.55rem;
+		border-radius: 0.3rem;
+		border: 1px solid var(--border);
+		background: var(--bg);
+		font-family: inherit;
+		font-size: 0.9rem;
+	}
+	.v-a-start {
+		background: var(--accent);
+		color: white;
+		border: none;
+		border-radius: 0.4rem;
+		padding: 0.55rem 1.5rem;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.v-a-start:disabled { opacity: 0.45; cursor: not-allowed; }
+	.v-a-footer {
+		display: flex;
+		justify-content: center;
+		margin-top: 0.75rem;
+	}
+	.v-a-leave {
+		font-size: 0.85rem;
+		color: var(--muted);
+		background: transparent;
+		border: 1px solid var(--border);
+		border-radius: 0.3rem;
+		padding: 0.35rem 0.75rem;
+		cursor: pointer;
+	}
+
+	/* ──────────────────────────────────────────────────────────────
+	   Variant B — Pre-show (share-first hero)
+	   Big code at top, vertical list below, sticky host bar.
+	   ────────────────────────────────────────────────────────────── */
+	.v-b-hero {
+		text-align: center;
+		padding: 2rem 1rem 1.5rem;
+		background: linear-gradient(180deg, var(--badge-bg) 0%, var(--surface) 100%);
+		border-radius: 0.6rem;
+		border: 1px solid var(--border);
+	}
+	.v-b-hero-eyebrow {
+		font-size: 0.8rem;
+		text-transform: uppercase;
+		letter-spacing: 0.12em;
+		color: var(--muted);
+		margin: 0 0 0.4rem;
+	}
+	.v-b-hero-code {
+		font-size: 3.5rem;
+		font-weight: 800;
+		letter-spacing: 0.15em;
+		margin: 0;
+		color: var(--fg);
+		font-variant-numeric: tabular-nums;
+	}
+	.v-b-hero-actions {
+		margin-top: 1rem;
+		display: flex;
+		gap: 0.5rem;
+		justify-content: center;
+		flex-wrap: wrap;
+	}
+	.v-b-hero-actions input {
+		min-width: 16rem;
+		padding: 0.5rem 0.6rem;
+		border: 1px solid var(--border);
+		border-radius: 0.4rem;
+		background: var(--surface);
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.85rem;
+	}
+	.v-b-hero-actions button {
+		padding: 0.5rem 1rem;
+		border-radius: 0.4rem;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		cursor: pointer;
+		font-weight: 600;
+	}
+	.v-b-roster-block { margin-top: 1.25rem; }
+	.v-b-roster-header {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		margin-bottom: 0.5rem;
+	}
+	.v-b-roster-header h2 { font-size: 1rem; margin: 0; }
+	.v-b-roster-count { color: var(--muted); font-size: 0.85rem; }
+	.v-b-roster {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+	}
+	.v-b-roster li {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.6rem 0.75rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+	}
+	.v-b-roster li.disconnected { opacity: 0.55; }
+	.v-b-roster li.self { border-color: var(--accent); }
+	.v-b-avatar-sm {
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: 50%;
+		background: var(--badge-bg);
+		color: var(--badge-fg);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 700;
+		font-size: 0.9rem;
+		flex-shrink: 0;
+	}
+	.v-b-name { font-weight: 500; }
+	.v-b-tags {
+		display: flex;
+		gap: 0.35rem;
+		align-items: center;
+		margin-left: auto;
+	}
+	.v-b-tag {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		padding: 0.1rem 0.45rem;
+		border-radius: 0.25rem;
+		background: var(--badge-bg);
+		color: var(--badge-fg);
+		font-weight: 600;
+	}
+	.v-b-tag.host { background: var(--accent-strong); color: white; }
+	.v-b-tag.you { background: var(--accent); color: white; }
+	.v-b-tag.dim { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 400; font-style: italic; text-transform: none; }
+	.v-b-row-actions { display: flex; gap: 0.3rem; margin-left: 0.4rem; }
+	.v-b-row-actions button {
+		font-size: 0.72rem;
+		padding: 0.2rem 0.45rem;
+		border-radius: 0.25rem;
+		border: 1px solid var(--border);
+		background: var(--bg);
+		cursor: pointer;
+	}
+	.v-b-row-actions button.danger { color: var(--danger-fg); }
+	.v-b-roster-empty {
+		padding: 1.5rem;
+		text-align: center;
+		color: var(--muted);
+		font-style: italic;
+		background: var(--surface);
+		border: 1px dashed var(--border);
+		border-radius: 0.5rem;
+	}
+	.v-b-sticky-bar {
+		position: sticky;
+		bottom: 0;
+		margin-top: 1.5rem;
+		padding: 0.85rem 1rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.6rem;
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		box-shadow: 0 -4px 16px rgba(0,0,0,0.05);
+	}
+	.v-b-sticky-bar.guest { justify-content: center; color: var(--muted); font-style: italic; }
+	.v-b-sticky-left { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+	.v-b-sticky-left label { font-size: 0.85rem; color: var(--muted); }
+	.v-b-sticky-left select {
+		padding: 0.35rem 0.55rem;
+		border-radius: 0.3rem;
+		border: 1px solid var(--border);
+		background: var(--bg);
+		font-family: inherit;
+		font-size: 0.9rem;
+	}
+	.v-b-start-cta {
+		padding: 0.6rem 1.4rem;
+		border-radius: 0.5rem;
+		border: none;
+		background: var(--accent);
+		color: white;
+		font-size: 1rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+	.v-b-start-cta:disabled { opacity: 0.45; cursor: not-allowed; }
+	.v-b-leave {
+		font-size: 0.8rem;
+		color: var(--muted);
+		background: transparent;
+		border: none;
+		text-decoration: underline;
+		cursor: pointer;
+		margin-top: 0.5rem;
+	}
+
+	/* ──────────────────────────────────────────────────────────────
+	   Variant C — Console grid
+	   4×2 player tiles + chip timer + giant Start.
+	   ────────────────────────────────────────────────────────────── */
+	.v-c-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+	.v-c-header-left { font-size: 0.9rem; color: var(--muted); }
+	.v-c-header-left strong {
+		display: inline-block;
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		letter-spacing: 0.12em;
+		font-size: 1.15rem;
+		color: var(--fg);
+		margin-left: 0.4rem;
+	}
+	.v-c-header-right { display: flex; gap: 0.5rem; align-items: center; }
+	.v-c-header-right button {
+		font-size: 0.8rem;
+		padding: 0.35rem 0.65rem;
+		border-radius: 0.3rem;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		cursor: pointer;
+	}
+	.v-c-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 0.6rem;
+	}
+	@media (max-width: 720px) {
+		.v-c-grid { grid-template-columns: repeat(2, 1fr); }
+	}
+	.v-c-tile {
+		aspect-ratio: 3 / 4;
+		border-radius: 0.5rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		padding: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		position: relative;
+		text-align: center;
+	}
+	.v-c-tile.empty {
+		background: transparent;
+		border-style: dashed;
+		color: var(--muted);
+	}
+	.v-c-tile.disconnected { opacity: 0.5; }
+	.v-c-tile.self { box-shadow: inset 0 0 0 2px var(--accent); }
+	.v-c-tile.host { background: linear-gradient(180deg, var(--accent-strong) 0%, var(--surface) 70%); color: white; }
+	.v-c-tile.host.disconnected { color: var(--muted); }
+	.v-c-avatar-md {
+		width: 3.5rem;
+		height: 3.5rem;
+		border-radius: 50%;
+		background: var(--bg);
+		color: var(--fg);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 800;
+		font-size: 1.2rem;
+		border: 2px solid currentColor;
+	}
+	.v-c-tile.empty .v-c-avatar-md {
+		border-style: dashed;
+		background: transparent;
+		color: var(--muted);
+	}
+	.v-c-tile-name {
+		font-weight: 600;
+		font-size: 0.95rem;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.v-c-tile-status {
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--muted);
+	}
+	.v-c-tile.host .v-c-tile-status { color: rgba(255,255,255,0.85); }
+	.v-c-tile-actions {
+		position: absolute;
+		top: 0.4rem;
+		right: 0.4rem;
+		display: flex;
+		gap: 0.2rem;
+	}
+	.v-c-tile-actions button {
+		font-size: 0.7rem;
+		width: 1.4rem;
+		height: 1.4rem;
+		border-radius: 50%;
+		border: 1px solid var(--border);
+		background: var(--bg);
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+	}
+	.v-c-tile-actions button.danger { color: var(--danger-fg); }
+	.v-c-controls {
+		margin-top: 1.25rem;
+		padding: 1rem;
+		border: 1px solid var(--border);
+		border-radius: 0.6rem;
+		background: var(--surface);
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+	}
+	.v-c-chip-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		align-items: center;
+	}
+	.v-c-chip-row .chip-label {
+		font-size: 0.85rem;
+		color: var(--muted);
+		margin-right: 0.25rem;
+	}
+	.v-c-chip {
+		padding: 0.3rem 0.7rem;
+		border-radius: 999px;
+		border: 1px solid var(--border);
+		background: var(--bg);
+		cursor: pointer;
+		font-size: 0.85rem;
+		font-variant-numeric: tabular-nums;
+	}
+	.v-c-chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+	.v-c-start-big {
+		padding: 1rem;
+		font-size: 1.25rem;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		border: none;
+		border-radius: 0.5rem;
+		background: var(--accent);
+		color: white;
+		cursor: pointer;
+	}
+	.v-c-start-big:disabled { opacity: 0.4; cursor: not-allowed; }
+	.v-c-guest-cta {
+		padding: 1rem;
+		font-size: 1rem;
+		text-align: center;
+		color: var(--muted);
+		font-style: italic;
+		border: 1px dashed var(--border);
+		border-radius: 0.5rem;
+	}
+	.v-c-leave-row {
+		display: flex;
+		justify-content: flex-end;
+	}
+	.v-c-leave {
+		font-size: 0.8rem;
+		color: var(--muted);
+		background: transparent;
+		border: none;
+		text-decoration: underline;
+		cursor: pointer;
+	}
+
+	/* ──────────────────────────────────────────────────────────────
+	   Floating variant switcher (dev only)
+	   ────────────────────────────────────────────────────────────── */
+	/* When the switcher is visible, reserve bottom space so it
+	   doesn't overlap page content (e.g. Leave button). The
+	   class is toggled by JS in isDevHost(). */
+	body.has-variant-switcher main { padding-bottom: 5rem; }
+	.variant-switcher {
+		position: fixed;
+		bottom: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: #111;
+		color: #fff;
+		border-radius: 999px;
+		padding: 0.45rem 0.5rem;
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+		z-index: 80;
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.85rem;
+	}
+	.variant-switcher button {
+		width: 1.8rem;
+		height: 1.8rem;
+		border-radius: 50%;
+		border: none;
+		background: rgba(255,255,255,0.1);
+		color: #fff;
+		cursor: pointer;
+		font-size: 1rem;
+	}
+	.variant-switcher button:hover { background: rgba(255,255,255,0.2); }
+	.variant-switcher .label {
+		padding: 0 0.6rem;
+		min-width: 12rem;
+		text-align: center;
+		font-weight: 600;
 	}
 </style>
 
@@ -217,31 +736,101 @@
 	<div id="name-error" class="lobby-error hidden" role="alert"></div>
 </section>
 
-<section id="connected-panel" class="lobby-panel hidden">
-	<h2>Players</h2>
-	<ul id="roster" class="roster-list"></ul>
-	<div id="host-controls" class="host-controls hidden">
-		<label for="timer-select">Round timer</label>
-		<select id="timer-select">
-			<option value="60" selected>60 s</option>
-			<option value="15">15 s</option>
-			<option value="30">30 s</option>
-			<option value="45">45 s</option>
-			<option value="75">75 s</option>
-			<option value="90">90 s</option>
-			<option value="105">105 s</option>
-			<option value="120">120 s</option>
-			<option value="0">off</option>
+<!-- ── Variant A — Campfire (radial) ─────────────────────────── -->
+<section id="waiting-A" class="waiting-variant hidden" aria-label="Waiting room (campfire)">
+	<div class="v-a-stage" id="va-stage">
+		<!-- Seats are injected by JS around the circle; the centre
+		     hub just shows the join code + copy button. -->
+		<div class="v-a-center">
+			<div class="v-a-center-label">Join code</div>
+			<div class="v-a-center-code" id="va-code"></div>
+			<button class="v-a-center-copy" id="va-copy" type="button">Copy link</button>
+		</div>
+	</div>
+	<div id="va-host-controls" class="v-a-controls hidden">
+		<select id="va-timer">
+			<option value="60" selected>60s timer</option>
+			<option value="15">15s timer</option>
+			<option value="30">30s timer</option>
+			<option value="45">45s timer</option>
+			<option value="75">75s timer</option>
+			<option value="90">90s timer</option>
+			<option value="105">105s timer</option>
+			<option value="120">120s timer</option>
+			<option value="0">no timer</option>
 		</select>
-		<button id="start-btn" class="btn" type="button">Start</button>
+		<button id="va-start" class="v-a-start" type="button">Start game</button>
 	</div>
-	<div class="leave-row">
-		<button id="leave-btn" class="btn-mini danger" type="button">Leave game</button>
+	<div id="va-guest-msg" class="v-a-controls guest">Waiting for the host to start the game…</div>
+	<div class="v-a-footer">
+		<button id="va-leave" class="v-a-leave" type="button">Leave game</button>
 	</div>
-	<div id="notice-stack" class="notice-stack"></div>
-	<p id="status" class="status-line connected">Connected.</p>
 </section>
 
+<!-- ── Variant B — Pre-show (share-first hero) ──────────────── -->
+<section id="waiting-B" class="waiting-variant hidden" aria-label="Waiting room (pre-show)">
+	<div class="v-b-hero">
+		<p class="v-b-hero-eyebrow">Join with code</p>
+		<p class="v-b-hero-code" id="vb-code"></p>
+		<div class="v-b-hero-actions">
+			<input id="vb-share-link" type="text" readonly>
+			<button id="vb-copy" type="button">Copy link</button>
+		</div>
+	</div>
+	<div class="v-b-roster-block">
+		<div class="v-b-roster-header">
+			<h2>Players</h2>
+			<span class="v-b-roster-count" id="vb-count">0 / 8</span>
+		</div>
+		<ul id="vb-roster" class="v-b-roster"></ul>
+		<div id="vb-roster-empty" class="v-b-roster-empty hidden">No one has joined yet.</div>
+	</div>
+	<div id="vb-sticky" class="v-b-sticky-bar guest">
+		<span id="vb-sticky-text">Waiting for the host to start the game…</span>
+		<div id="vb-host-bar" class="hidden" style="display:contents">
+			<div class="v-b-sticky-left">
+				<label for="vb-timer">Round timer</label>
+				<select id="vb-timer">
+					<option value="60" selected>60s</option>
+					<option value="15">15s</option>
+					<option value="30">30s</option>
+					<option value="45">45s</option>
+					<option value="75">75s</option>
+					<option value="90">90s</option>
+					<option value="105">105s</option>
+					<option value="120">120s</option>
+					<option value="0">off</option>
+				</select>
+			</div>
+			<button id="vb-start" class="v-b-start-cta" type="button">Start game</button>
+		</div>
+	</div>
+	<div style="text-align:center"><button id="vb-leave" class="v-b-leave" type="button">Leave game</button></div>
+</section>
+
+<!-- ── Variant C — Console grid ─────────────────────────────── -->
+<section id="waiting-C" class="waiting-variant hidden" aria-label="Waiting room (console)">
+	<div class="v-c-header">
+		<div class="v-c-header-left">Code <strong id="vc-code"></strong></div>
+		<div class="v-c-header-right">
+			<button id="vc-copy" type="button">Copy link</button>
+			<button id="vc-leave" type="button">Leave</button>
+		</div>
+	</div>
+	<div id="vc-grid" class="v-c-grid"></div>
+	<div class="v-c-controls">
+		<div id="vc-host-block" class="hidden">
+			<div class="v-c-chip-row">
+				<span class="chip-label">Round timer</span>
+				<div id="vc-chips"></div>
+			</div>
+			<button id="vc-start" class="v-c-start-big" type="button">Start game</button>
+		</div>
+		<div id="vc-guest-block" class="v-c-guest-cta">Waiting for the host to start the game…</div>
+	</div>
+</section>
+
+<!-- ── Round-active and round-complete panels (unchanged) ───── -->
 <section id="round-panel" class="lobby-panel hidden">
 	<h2>Round 0 — Starter Caption</h2>
 	<p class="round-prompt">Invent the first Caption for your Chain.</p>
@@ -262,35 +851,56 @@
 	<p class="round-complete">More game flow coming soon.</p>
 </section>
 
-<section id="share-panel" class="lobby-panel hidden">
-	<h2>Share this lobby</h2>
-	<div class="share-row">
-		<input id="share-link" class="input" type="text" readonly>
-		<button id="copy-link" class="btn" type="button">Copy link</button>
-	</div>
-	<p class="status-line"><span id="copy-status"></span>&nbsp;</p>
-</section>
+<!-- Floating notices (used by all variants) -->
+<div id="notice-stack" class="notice-stack"></div>
+
+<!-- Floating variant switcher (dev only) -->
+<div id="variant-switcher" class="variant-switcher hidden" role="region" aria-label="Prototype variant switcher">
+	<button id="switcher-prev" type="button" aria-label="Previous variant">‹</button>
+	<span class="label" id="switcher-label">A — Campfire</span>
+	<button id="switcher-next" type="button" aria-label="Next variant">›</button>
+</div>
 
 <script>
 (function () {
 	const code = "{{.Code}}";
+	const displayCode = "{{.DisplayCode}}";
 
+	// Variant catalogue — order is the cycle order.
+	const VARIANTS = [
+		{ key: "A", name: "Campfire" },
+		{ key: "B", name: "Pre-show" },
+		{ key: "C", name: "Console grid" },
+	];
+
+	function getVariant() {
+		const p = new URLSearchParams(window.location.search);
+		const v = (p.get("variant") || "A").toUpperCase();
+		return VARIANTS.find(x => x.key === v) ? v : "A";
+	}
+	function setVariant(key) {
+		const url = new URL(window.location.href);
+		url.searchParams.set("variant", key);
+		window.history.replaceState({}, "", url);
+		activeVariant = key;
+		applyVariantVisibility();
+		if (phase === "lobby" && lastRoster) {
+			renderRoster(lastRoster);
+		}
+		updateSwitcherLabel();
+	}
+
+	let activeVariant = getVariant();
+
+	// ──────────────────────────────────────────────────────────
+	// Element handles
+	// ──────────────────────────────────────────────────────────
 	const namePanel = document.getElementById("name-panel");
 	const nameForm = document.getElementById("name-form");
 	const nameInput = document.getElementById("name-input");
 	const nameSubmit = document.getElementById("name-submit");
 	const nameError = document.getElementById("name-error");
-
-	const connectedPanel = document.getElementById("connected-panel");
-	const roster = document.getElementById("roster");
-	const leaveBtn = document.getElementById("leave-btn");
 	const noticeStack = document.getElementById("notice-stack");
-	const status = document.getElementById("status");
-
-	const hostControls = document.getElementById("host-controls");
-	const timerSelect = document.getElementById("timer-select");
-	const startBtn = document.getElementById("start-btn");
-
 	const roundPanel = document.getElementById("round-panel");
 	const roundInput = document.getElementById("round-input");
 	const roundCountdown = document.getElementById("round-countdown");
@@ -299,33 +909,70 @@
 	const roundSubmittedBanner = document.getElementById("round-submitted-banner");
 	const roundCompletePanel = document.getElementById("round-complete-panel");
 
-	const sharePanel = document.getElementById("share-panel");
-	const shareLink = document.getElementById("share-link");
-	const copyBtn = document.getElementById("copy-link");
-	const copyStatus = document.getElementById("copy-status");
+	const waitingPanels = {
+		A: document.getElementById("waiting-A"),
+		B: document.getElementById("waiting-B"),
+		C: document.getElementById("waiting-C"),
+	};
 
+	// Variant A elements
+	const vaStage = document.getElementById("va-stage");
+	const vaCode = document.getElementById("va-code");
+	const vaCopy = document.getElementById("va-copy");
+	const vaHostControls = document.getElementById("va-host-controls");
+	const vaTimer = document.getElementById("va-timer");
+	const vaStart = document.getElementById("va-start");
+	const vaGuestMsg = document.getElementById("va-guest-msg");
+	const vaLeave = document.getElementById("va-leave");
+
+	// Variant B elements
+	const vbCode = document.getElementById("vb-code");
+	const vbShareLink = document.getElementById("vb-share-link");
+	const vbCopy = document.getElementById("vb-copy");
+	const vbRoster = document.getElementById("vb-roster");
+	const vbRosterEmpty = document.getElementById("vb-roster-empty");
+	const vbCount = document.getElementById("vb-count");
+	const vbSticky = document.getElementById("vb-sticky");
+	const vbStickyText = document.getElementById("vb-sticky-text");
+	const vbHostBar = document.getElementById("vb-host-bar");
+	const vbTimer = document.getElementById("vb-timer");
+	const vbStart = document.getElementById("vb-start");
+	const vbLeave = document.getElementById("vb-leave");
+
+	// Variant C elements
+	const vcCode = document.getElementById("vc-code");
+	const vcGrid = document.getElementById("vc-grid");
+	const vcCopy = document.getElementById("vc-copy");
+	const vcLeave = document.getElementById("vc-leave");
+	const vcHostBlock = document.getElementById("vc-host-block");
+	const vcGuestBlock = document.getElementById("vc-guest-block");
+	const vcChips = document.getElementById("vc-chips");
+	const vcStart = document.getElementById("vc-start");
+
+	// Switcher
+	const switcherEl = document.getElementById("variant-switcher");
+	const switcherLabel = document.getElementById("switcher-label");
+	const switcherPrev = document.getElementById("switcher-prev");
+	const switcherNext = document.getElementById("switcher-next");
+
+	// ──────────────────────────────────────────────────────────
+	// State
+	// ──────────────────────────────────────────────────────────
 	let phase = "lobby"; // "lobby" | "round" | "complete"
 	let deadlineMS = null;
 	let countdownTimer = null;
 	let submitted = false;
 	let viewerIsHost = false;
+	let lastRoster = null;
+	let selectedTimerSecs = 60;
 
 	let myName = null;
 	let ws = null;
-	// leftVoluntarily is set when the user clicks "Leave game" so
-	// the impending WS close handler can return cleanly to name
-	// entry without showing a "Disconnected." error.
 	let leftVoluntarily = false;
 
-	function showNameError(msg) {
-		nameError.textContent = msg;
-		nameError.classList.remove("hidden");
-	}
-	function hideNameError() {
-		nameError.classList.add("hidden");
-		nameError.textContent = "";
-	}
-
+	// ──────────────────────────────────────────────────────────
+	// Util
+	// ──────────────────────────────────────────────────────────
 	function sendCmd(cmd) {
 		if (!ws || ws.readyState !== WebSocket.OPEN) return;
 		try { ws.send(JSON.stringify(cmd)); }
@@ -337,95 +984,409 @@
 		div.className = "notice";
 		div.textContent = text;
 		noticeStack.appendChild(div);
-		// Auto-fade after a few seconds so the stack stays short.
 		setTimeout(function () {
 			if (div.parentNode) div.parentNode.removeChild(div);
 		}, 6000);
 	}
 
-	function renderRoster(players) {
-		roster.innerHTML = "";
-		if (!players || players.length === 0) {
-			const li = document.createElement("li");
-			li.className = "roster-empty";
-			li.textContent = "(no one here yet)";
-			roster.appendChild(li);
-			return;
+	function showNameError(msg) {
+		nameError.textContent = msg;
+		nameError.classList.remove("hidden");
+	}
+	function hideNameError() {
+		nameError.classList.add("hidden");
+		nameError.textContent = "";
+	}
+
+	function initials(name) {
+		if (!name) return "?";
+		const parts = name.trim().split(/\s+/);
+		if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+		return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+	}
+
+	function shareUrl() {
+		return window.location.origin + window.location.pathname;
+	}
+
+	function copyShareLink(button) {
+		const url = shareUrl();
+		const writeText = (navigator.clipboard && navigator.clipboard.writeText)
+			? navigator.clipboard.writeText(url)
+			: Promise.reject(new Error("no clipboard"));
+		writeText.then(function () {
+			if (button) {
+				const orig = button.textContent;
+				button.textContent = "Copied!";
+				setTimeout(function () { button.textContent = orig; }, 1400);
+			}
+		}).catch(function () {
+			// Fallback — surface as notice.
+			showNotice("Press Cmd/Ctrl+C to copy: " + url);
+		});
+	}
+
+	function openSeatSheet(player) {
+		// Bottom-sheet for host-only per-seat actions. Tap the
+		// backdrop to dismiss.
+		const backdrop = document.createElement("div");
+		backdrop.className = "seat-sheet-backdrop";
+		const sheet = document.createElement("div");
+		sheet.className = "seat-sheet";
+		const h = document.createElement("h3");
+		h.textContent = player.name;
+		sheet.appendChild(h);
+
+		const close = function () {
+			if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+		};
+
+		const makeBtn = document.createElement("button");
+		makeBtn.type = "button";
+		makeBtn.textContent = "Make Host";
+		makeBtn.addEventListener("click", function (e) {
+			e.stopPropagation();
+			sendCmd({ type: "transfer-host", target: player.name });
+			close();
+		});
+		sheet.appendChild(makeBtn);
+
+		const kickBtn = document.createElement("button");
+		kickBtn.type = "button";
+		kickBtn.className = "danger";
+		kickBtn.textContent = "Kick from game";
+		kickBtn.addEventListener("click", function (e) {
+			e.stopPropagation();
+			sendCmd({ type: "kick", target: player.name });
+			close();
+		});
+		sheet.appendChild(kickBtn);
+
+		const cancelBtn = document.createElement("button");
+		cancelBtn.type = "button";
+		cancelBtn.className = "cancel";
+		cancelBtn.textContent = "Cancel";
+		cancelBtn.addEventListener("click", function (e) {
+			e.stopPropagation();
+			close();
+		});
+		sheet.appendChild(cancelBtn);
+
+		sheet.addEventListener("click", function (e) { e.stopPropagation(); });
+		backdrop.addEventListener("click", close);
+		backdrop.appendChild(sheet);
+		document.body.appendChild(backdrop);
+	}
+
+	function leaveFlow() {
+		if (!confirm("Leave this game?")) return;
+		sendCmd({ type: "leave" });
+		leftVoluntarily = true;
+		hideNameError();
+		resetToNameEntry();
+		try { if (ws) ws.close(); } catch (e) {}
+	}
+
+	function applyVariantVisibility() {
+		// Show the active waiting panel only when in lobby phase.
+		Object.keys(waitingPanels).forEach(function (k) {
+			waitingPanels[k].classList.add("hidden");
+		});
+		if (phase === "lobby" && myName) {
+			const panel = waitingPanels[activeVariant];
+			if (panel) panel.classList.remove("hidden");
 		}
-		// Determine whether the local Player is currently the Host.
-		// The "Make Host" and "Kick" affordances render only when
-		// the viewer is Host (per issue #7 / ADR 0005). If our seat
-		// has been removed from the roster (kick or leave), no row
-		// is the viewer so isHost falls back to false.
+	}
+
+	// ──────────────────────────────────────────────────────────
+	// Variant A renderer — radial seat layout
+	// ──────────────────────────────────────────────────────────
+	function renderVariantA(players) {
+		vaCode.textContent = displayCode;
+
+		// Build 8 slots positioned around the circle.
+		// Players fill slots in roster order; remaining slots are
+		// rendered as empty placeholders so the room visibly fills.
+		const SLOT_COUNT = 8;
+		const existing = vaStage.querySelectorAll(".v-a-seat");
+		existing.forEach(function (e) { e.remove(); });
+
+		// Radius as % of stage. The centre hub is 38% wide
+		// (radius 19%); seats sit at radius 36% so there's a
+		// clear gutter between hub and seats. The stage's own
+		// padding keeps the cardinal-point seats inside.
+		const radius = 36; // percent
+		for (let i = 0; i < SLOT_COUNT; i++) {
+			const angle = (i / SLOT_COUNT) * Math.PI * 2 - Math.PI / 2;
+			const x = 50 + radius * Math.cos(angle);
+			const y = 50 + radius * Math.sin(angle);
+			const seat = document.createElement("div");
+			seat.className = "v-a-seat";
+			seat.style.left = x + "%";
+			seat.style.top = y + "%";
+
+			const p = players[i];
+			const avatar = document.createElement("div");
+			avatar.className = "v-a-avatar";
+			const name = document.createElement("div");
+			name.className = "v-a-name";
+
+			if (p) {
+				seat.classList.add("occupied");
+				if (p.host) {
+					seat.classList.add("host");
+					const crown = document.createElement("span");
+					crown.className = "v-a-crown";
+					crown.textContent = "Host";
+					avatar.appendChild(crown);
+				}
+				if (p.connected === false) seat.classList.add("disconnected");
+				if (p.name === myName) seat.classList.add("self");
+				const txt = document.createElement("span");
+				txt.textContent = initials(p.name);
+				avatar.appendChild(txt);
+				name.textContent = p.name;
+				if (viewerIsHost && p.name !== myName) {
+					seat.classList.add("tappable");
+					seat.addEventListener("click", function () {
+						openSeatSheet(p);
+					});
+				}
+			} else {
+				avatar.textContent = "+";
+				name.classList.add("empty");
+				name.textContent = "open seat";
+			}
+			seat.appendChild(avatar);
+			seat.appendChild(name);
+			vaStage.appendChild(seat);
+		}
+
+		if (viewerIsHost) {
+			vaHostControls.classList.remove("hidden");
+			vaGuestMsg.classList.add("hidden");
+		} else {
+			vaHostControls.classList.add("hidden");
+			vaGuestMsg.classList.remove("hidden");
+		}
+	}
+
+	// ──────────────────────────────────────────────────────────
+	// Variant B renderer — pre-show / vertical list
+	// ──────────────────────────────────────────────────────────
+	function renderVariantB(players) {
+		vbCode.textContent = displayCode;
+		vbShareLink.value = shareUrl();
+		vbCount.textContent = players.length + " / 8";
+
+		vbRoster.innerHTML = "";
+		if (!players.length) {
+			vbRosterEmpty.classList.remove("hidden");
+		} else {
+			vbRosterEmpty.classList.add("hidden");
+		}
+		players.forEach(function (p) {
+			const li = document.createElement("li");
+			if (p.connected === false) li.classList.add("disconnected");
+			if (p.name === myName) li.classList.add("self");
+
+			const av = document.createElement("div");
+			av.className = "v-b-avatar-sm";
+			av.textContent = initials(p.name);
+			li.appendChild(av);
+
+			const name = document.createElement("div");
+			name.className = "v-b-name";
+			name.textContent = p.name;
+			li.appendChild(name);
+
+			const tags = document.createElement("div");
+			tags.className = "v-b-tags";
+			if (p.host) {
+				const t = document.createElement("span");
+				t.className = "v-b-tag host";
+				t.textContent = "Host";
+				tags.appendChild(t);
+			}
+			if (p.name === myName) {
+				const t = document.createElement("span");
+				t.className = "v-b-tag you";
+				t.textContent = "You";
+				tags.appendChild(t);
+			}
+			if (p.connected === false) {
+				const t = document.createElement("span");
+				t.className = "v-b-tag dim";
+				t.textContent = "disconnected";
+				tags.appendChild(t);
+			}
+			li.appendChild(tags);
+
+			if (viewerIsHost && p.name !== myName) {
+				const actions = document.createElement("div");
+				actions.className = "v-b-row-actions";
+				const make = document.createElement("button");
+				make.type = "button";
+				make.textContent = "Make host";
+				make.addEventListener("click", function () {
+					sendCmd({ type: "transfer-host", target: p.name });
+				});
+				const kick = document.createElement("button");
+				kick.type = "button";
+				kick.className = "danger";
+				kick.textContent = "Kick";
+				kick.addEventListener("click", function () {
+					sendCmd({ type: "kick", target: p.name });
+				});
+				actions.appendChild(make);
+				actions.appendChild(kick);
+				li.appendChild(actions);
+			}
+			vbRoster.appendChild(li);
+		});
+
+		if (viewerIsHost) {
+			vbSticky.classList.remove("guest");
+			vbStickyText.classList.add("hidden");
+			vbHostBar.classList.remove("hidden");
+		} else {
+			vbSticky.classList.add("guest");
+			vbStickyText.classList.remove("hidden");
+			vbHostBar.classList.add("hidden");
+		}
+	}
+
+	// ──────────────────────────────────────────────────────────
+	// Variant C renderer — console grid of tiles
+	// ──────────────────────────────────────────────────────────
+	const C_TIMER_OPTIONS = [
+		{ label: "15s", v: 15 },
+		{ label: "30s", v: 30 },
+		{ label: "60s", v: 60 },
+		{ label: "90s", v: 90 },
+		{ label: "120s", v: 120 },
+		{ label: "Off", v: 0 },
+	];
+	function renderVariantCChips() {
+		vcChips.innerHTML = "";
+		C_TIMER_OPTIONS.forEach(function (opt) {
+			const b = document.createElement("button");
+			b.type = "button";
+			b.className = "v-c-chip" + (opt.v === selectedTimerSecs ? " active" : "");
+			b.textContent = opt.label;
+			b.addEventListener("click", function () {
+				selectedTimerSecs = opt.v;
+				sendCmd({ type: "timer", seconds: opt.v === 0 ? null : opt.v });
+				renderVariantCChips();
+			});
+			vcChips.appendChild(b);
+		});
+	}
+	function renderVariantC(players) {
+		vcCode.textContent = displayCode;
+
+		vcGrid.innerHTML = "";
+		const TILE_COUNT = 8;
+		for (let i = 0; i < TILE_COUNT; i++) {
+			const tile = document.createElement("div");
+			tile.className = "v-c-tile";
+			const p = players[i];
+			if (!p) {
+				tile.classList.add("empty");
+				const av = document.createElement("div");
+				av.className = "v-c-avatar-md";
+				av.textContent = "·";
+				tile.appendChild(av);
+				const name = document.createElement("div");
+				name.className = "v-c-tile-name";
+				name.textContent = "waiting";
+				tile.appendChild(name);
+			} else {
+				if (p.host) tile.classList.add("host");
+				if (p.connected === false) tile.classList.add("disconnected");
+				if (p.name === myName) tile.classList.add("self");
+
+				const av = document.createElement("div");
+				av.className = "v-c-avatar-md";
+				av.textContent = initials(p.name);
+				tile.appendChild(av);
+
+				const name = document.createElement("div");
+				name.className = "v-c-tile-name";
+				name.textContent = p.name + (p.name === myName ? " (you)" : "");
+				tile.appendChild(name);
+
+				const status = document.createElement("div");
+				status.className = "v-c-tile-status";
+				if (p.host) status.textContent = "Host";
+				else if (p.connected === false) status.textContent = "Disconnected";
+				else status.textContent = "Ready";
+				tile.appendChild(status);
+
+				if (viewerIsHost && p.name !== myName) {
+					const actions = document.createElement("div");
+					actions.className = "v-c-tile-actions";
+					const make = document.createElement("button");
+					make.type = "button";
+					make.title = "Make host";
+					make.textContent = "★";
+					make.addEventListener("click", function () {
+						sendCmd({ type: "transfer-host", target: p.name });
+					});
+					const kick = document.createElement("button");
+					kick.type = "button";
+					kick.className = "danger";
+					kick.title = "Kick";
+					kick.textContent = "✕";
+					kick.addEventListener("click", function () {
+						sendCmd({ type: "kick", target: p.name });
+					});
+					actions.appendChild(make);
+					actions.appendChild(kick);
+					tile.appendChild(actions);
+				}
+			}
+			vcGrid.appendChild(tile);
+		}
+
+		if (viewerIsHost) {
+			vcHostBlock.classList.remove("hidden");
+			vcGuestBlock.classList.add("hidden");
+			renderVariantCChips();
+		} else {
+			vcHostBlock.classList.add("hidden");
+			vcGuestBlock.classList.remove("hidden");
+		}
+	}
+
+	// ──────────────────────────────────────────────────────────
+	// Roster dispatch
+	// ──────────────────────────────────────────────────────────
+	function renderRoster(players) {
+		lastRoster = players || [];
 		viewerIsHost = false;
-		for (const p of players) {
+		for (const p of lastRoster) {
 			if (p.name === myName && p.host) { viewerIsHost = true; break; }
 		}
-		// Host-only lobby affordances (timer dropdown + Start) only
-		// show in the lobby phase.
-		if (viewerIsHost && phase === "lobby") {
-			hostControls.classList.remove("hidden");
-		} else {
-			hostControls.classList.add("hidden");
-		}
-		// Host-only Round affordance: Force advance.
+		// Host-only Force advance button (round panel).
 		if (viewerIsHost && phase === "round") {
 			roundAdvanceBtn.classList.remove("hidden");
 		} else {
 			roundAdvanceBtn.classList.add("hidden");
 		}
-		for (const p of players) {
-			const li = document.createElement("li");
-			const nameSpan = document.createElement("span");
-			nameSpan.textContent = p.name;
-			if (p.name === myName) nameSpan.classList.add("self");
-			li.appendChild(nameSpan);
-			if (p.host) {
-				const badge = document.createElement("span");
-				badge.className = "host-badge";
-				badge.textContent = "Host";
-				li.appendChild(badge);
-			}
-			if (p.connected === false) {
-				li.classList.add("disconnected");
-				const tag = document.createElement("span");
-				tag.className = "disconnected-tag";
-				tag.textContent = "(disconnected)";
-				li.appendChild(tag);
-			}
-			if (viewerIsHost && p.name !== myName) {
-				const actions = document.createElement("span");
-				actions.className = "roster-actions";
 
-				const makeHost = document.createElement("button");
-				makeHost.type = "button";
-				makeHost.className = "btn-mini";
-				makeHost.textContent = "Make Host";
-				makeHost.addEventListener("click", function () {
-					sendCmd({ type: "transfer-host", target: p.name });
-				});
-				actions.appendChild(makeHost);
-
-				const kick = document.createElement("button");
-				kick.type = "button";
-				kick.className = "btn-mini danger";
-				kick.textContent = "Kick";
-				kick.addEventListener("click", function () {
-					sendCmd({ type: "kick", target: p.name });
-				});
-				actions.appendChild(kick);
-
-				li.appendChild(actions);
-			}
-			roster.appendChild(li);
-		}
+		if (phase !== "lobby") return;
+		if (activeVariant === "A") renderVariantA(lastRoster);
+		else if (activeVariant === "B") renderVariantB(lastRoster);
+		else if (activeVariant === "C") renderVariantC(lastRoster);
 	}
 
+	// ──────────────────────────────────────────────────────────
+	// WebSocket lifecycle
+	// ──────────────────────────────────────────────────────────
 	function onOpen() {
 		namePanel.classList.add("hidden");
-		connectedPanel.classList.remove("hidden");
-		sharePanel.classList.remove("hidden");
-		shareLink.value = window.location.origin + window.location.pathname;
+		applyVariantVisibility();
 	}
 
 	function onMessage(ev) {
@@ -450,7 +1411,6 @@
 		const s = total % 60;
 		return m + ":" + (s < 10 ? "0" : "") + s;
 	}
-
 	function tickCountdown() {
 		if (deadlineMS === null) {
 			roundCountdown.textContent = "";
@@ -459,25 +1419,18 @@
 		}
 		const remaining = deadlineMS - Date.now();
 		roundCountdown.textContent = "Time left: " + fmtCountdown(remaining);
-		if (remaining <= 10000) {
-			roundCountdown.classList.add("urgent");
-		} else {
-			roundCountdown.classList.remove("urgent");
-		}
+		if (remaining <= 10000) roundCountdown.classList.add("urgent");
+		else roundCountdown.classList.remove("urgent");
 	}
-
 	function clearCountdown() {
-		if (countdownTimer !== null) {
-			clearInterval(countdownTimer);
-			countdownTimer = null;
-		}
+		if (countdownTimer !== null) { clearInterval(countdownTimer); countdownTimer = null; }
 	}
 
 	function enterRound(msg) {
 		phase = "round";
 		deadlineMS = (typeof msg.deadline_ms === "number") ? msg.deadline_ms : null;
 		submitted = !!msg.submitted;
-		hostControls.classList.add("hidden");
+		applyVariantVisibility();
 		roundPanel.classList.remove("hidden");
 		roundCompletePanel.classList.add("hidden");
 		roundInput.value = msg.draft_text || "";
@@ -490,87 +1443,63 @@
 			roundSubmitBtn.disabled = false;
 			roundSubmittedBanner.classList.add("hidden");
 		}
-		if (viewerIsHost) {
-			roundAdvanceBtn.classList.remove("hidden");
-		} else {
-			roundAdvanceBtn.classList.add("hidden");
-		}
+		if (viewerIsHost) roundAdvanceBtn.classList.remove("hidden");
+		else roundAdvanceBtn.classList.add("hidden");
 		clearCountdown();
 		tickCountdown();
-		if (deadlineMS !== null) {
-			countdownTimer = setInterval(tickCountdown, 500);
-		}
+		if (deadlineMS !== null) countdownTimer = setInterval(tickCountdown, 500);
 	}
 
 	function enterRoundComplete() {
 		phase = "complete";
 		clearCountdown();
 		roundPanel.classList.add("hidden");
-		hostControls.classList.add("hidden");
+		applyVariantVisibility();
 		roundCompletePanel.classList.remove("hidden");
 	}
 
 	function resetToNameEntry() {
-		connectedPanel.classList.add("hidden");
-		sharePanel.classList.add("hidden");
+		Object.keys(waitingPanels).forEach(function (k) {
+			waitingPanels[k].classList.add("hidden");
+		});
 		namePanel.classList.remove("hidden");
 		nameSubmit.disabled = false;
-		renderRoster([]);
+		lastRoster = null;
+		myName = null;
+		phase = "lobby";
 	}
 
 	function onClose(ev) {
 		ws = null;
 		const reason = ev.reason || "";
-
-		// User clicked "Leave game." The local UI was already
-		// reset; the WS close that follows is just cleanup, not
-		// an error condition to surface.
-		if (leftVoluntarily) {
-			leftVoluntarily = false;
-			return;
-		}
-
-		// Server-driven rejections (policy violations from the WS
-		// handler) arrive after the upgrade-handshake "open" event,
-		// so we may already be showing the connected UI. Always
-		// reset to name entry for these.
+		if (leftVoluntarily) { leftVoluntarily = false; return; }
 		if (reason.indexOf("session full") === 0) {
 			resetToNameEntry();
 			showNameError("This game session is full (8 players maximum).");
 			return;
 		}
 		if (reason.indexOf("superseded") === 0) {
-			// Another connection (refresh, second tab, or impostor)
-			// took over this seat. The new connection owns the seat
-			// now; this tab is informational.
-			status.classList.remove("connected");
-			status.textContent = "This seat was taken over by another connection.";
+			showNotice("This seat was taken over by another connection.");
 			return;
 		}
 		if (reason.indexOf("kicked") === 0) {
-			// The Host removed us from the GameSession. The seat is
-			// gone; reset back to name entry so the user can try a
-			// different name or join a different session.
 			resetToNameEntry();
 			showNameError("You were removed from this game session by the host.");
 			return;
 		}
-
-		// Real disconnect after a successful join.
-		if (!connectedPanel.classList.contains("hidden")) {
-			status.classList.remove("connected");
-			status.textContent = "Disconnected" + (reason ? ": " + reason : ".");
+		// Generic disconnect.
+		if (myName) {
+			showNotice("Disconnected" + (reason ? ": " + reason : "."));
 			return;
 		}
-
 		nameSubmit.disabled = false;
-		if (ev.code === 1006) {
-			showNameError("Connection lost before joining. Please try again.");
-		} else {
-			showNameError(reason || "could not connect");
-		}
+		if (ev.code === 1006) showNameError("Connection lost before joining. Please try again.");
+		else showNameError(reason || "could not connect");
 	}
 
+	// ──────────────────────────────────────────────────────────
+	// Wiring — name entry
+	// ──────────────────────────────────────────────────────────
 	nameForm.addEventListener("submit", function (e) {
 		e.preventDefault();
 		hideNameError();
@@ -591,36 +1520,62 @@
 		ws.addEventListener("open", onOpen);
 		ws.addEventListener("message", onMessage);
 		ws.addEventListener("close", onClose);
-		ws.addEventListener("error", function () {
-			// onClose will follow; let it handle the user-facing reset.
-		});
+		ws.addEventListener("error", function () { /* onClose follows */ });
 	});
 
-	timerSelect.addEventListener("change", function () {
-		const v = timerSelect.value;
+	// ──────────────────────────────────────────────────────────
+	// Wiring — variant A
+	// ──────────────────────────────────────────────────────────
+	vaCopy.addEventListener("click", function () { copyShareLink(vaCopy); });
+	vaTimer.addEventListener("change", function () {
+		const v = vaTimer.value;
 		const secs = v === "0" ? null : parseInt(v, 10);
 		sendCmd({ type: "timer", seconds: secs });
 	});
-
-	startBtn.addEventListener("click", function () {
-		// Push the current dropdown value first so the server's
-		// pending-timer state matches what the Host has selected,
-		// then issue Start. Both messages travel over the same WS
-		// in order, so the server processes them sequentially.
-		const v = timerSelect.value;
+	vaStart.addEventListener("click", function () {
+		const v = vaTimer.value;
 		const secs = v === "0" ? null : parseInt(v, 10);
 		sendCmd({ type: "timer", seconds: secs });
 		sendCmd({ type: "start" });
 	});
+	vaLeave.addEventListener("click", leaveFlow);
 
+	// ──────────────────────────────────────────────────────────
+	// Wiring — variant B
+	// ──────────────────────────────────────────────────────────
+	vbCopy.addEventListener("click", function () { copyShareLink(vbCopy); });
+	vbTimer.addEventListener("change", function () {
+		const v = vbTimer.value;
+		const secs = v === "0" ? null : parseInt(v, 10);
+		sendCmd({ type: "timer", seconds: secs });
+	});
+	vbStart.addEventListener("click", function () {
+		const v = vbTimer.value;
+		const secs = v === "0" ? null : parseInt(v, 10);
+		sendCmd({ type: "timer", seconds: secs });
+		sendCmd({ type: "start" });
+	});
+	vbLeave.addEventListener("click", leaveFlow);
+
+	// ──────────────────────────────────────────────────────────
+	// Wiring — variant C
+	// ──────────────────────────────────────────────────────────
+	vcCopy.addEventListener("click", function () { copyShareLink(vcCopy); });
+	vcLeave.addEventListener("click", leaveFlow);
+	vcStart.addEventListener("click", function () {
+		sendCmd({ type: "timer", seconds: selectedTimerSecs === 0 ? null : selectedTimerSecs });
+		sendCmd({ type: "start" });
+	});
+
+	// ──────────────────────────────────────────────────────────
+	// Wiring — round panel (unchanged behaviour)
+	// ──────────────────────────────────────────────────────────
 	roundInput.addEventListener("input", function () {
 		if (phase !== "round" || submitted) return;
 		sendCmd({ type: "draft", text: roundInput.value });
 	});
-
 	roundSubmitBtn.addEventListener("click", function () {
 		if (phase !== "round" || submitted) return;
-		// Push the latest text once more to be safe, then submit.
 		sendCmd({ type: "draft", text: roundInput.value });
 		sendCmd({ type: "submit" });
 		submitted = true;
@@ -628,38 +1583,47 @@
 		roundSubmitBtn.disabled = true;
 		roundSubmittedBanner.classList.remove("hidden");
 	});
-
 	roundAdvanceBtn.addEventListener("click", function () {
 		if (phase !== "round") return;
 		sendCmd({ type: "advance" });
 	});
 
-	leaveBtn.addEventListener("click", function () {
-		if (!confirm("Leave this game?")) return;
-		sendCmd({ type: "leave" });
-		// Reset the local UI immediately — the user has decided to
-		// leave; we don't need server confirmation to take them
-		// back to name entry. The leftVoluntarily flag tells the
-		// upcoming WS close handler to skip its disconnect/error UI.
-		leftVoluntarily = true;
-		hideNameError();
-		resetToNameEntry();
-		try { if (ws) ws.close(); } catch (e) {}
+	// ──────────────────────────────────────────────────────────
+	// Variant switcher
+	// ──────────────────────────────────────────────────────────
+	function updateSwitcherLabel() {
+		const v = VARIANTS.find(x => x.key === activeVariant) || VARIANTS[0];
+		switcherLabel.textContent = v.key + " — " + v.name;
+	}
+	function cycleVariant(delta) {
+		const idx = VARIANTS.findIndex(x => x.key === activeVariant);
+		const next = (idx + delta + VARIANTS.length) % VARIANTS.length;
+		setVariant(VARIANTS[next].key);
+	}
+	switcherPrev.addEventListener("click", function () { cycleVariant(-1); });
+	switcherNext.addEventListener("click", function () { cycleVariant(1); });
+	document.addEventListener("keydown", function (e) {
+		// Don't intercept arrow keys when an input/textarea is focused.
+		const a = document.activeElement;
+		const tag = a && a.tagName ? a.tagName.toLowerCase() : "";
+		if (tag === "input" || tag === "textarea" || (a && a.isContentEditable)) return;
+		if (e.key === "ArrowLeft") cycleVariant(-1);
+		else if (e.key === "ArrowRight") cycleVariant(1);
 	});
 
-	copyBtn.addEventListener("click", function () {
-		const url = shareLink.value;
-		const writeText = (navigator.clipboard && navigator.clipboard.writeText)
-			? navigator.clipboard.writeText(url)
-			: Promise.reject(new Error("no clipboard"));
-		writeText.then(function () {
-			copyStatus.textContent = "Copied!";
-			setTimeout(function () { copyStatus.textContent = ""; }, 1500);
-		}).catch(function () {
-			shareLink.select();
-			copyStatus.textContent = "Selected — press Cmd/Ctrl+C to copy.";
-		});
-	});
+	// Show switcher only when running locally (rough dev-mode gate).
+	function isDevHost() {
+		const h = window.location.hostname;
+		return h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0" || h.endsWith(".local") || /^192\.168\./.test(h) || /^10\./.test(h);
+	}
+	if (isDevHost()) {
+		switcherEl.classList.remove("hidden");
+		document.body.classList.add("has-variant-switcher");
+		updateSwitcherLabel();
+	}
+
+	// Initial visibility — variant panels are hidden until joined.
+	applyVariantVisibility();
 })();
 </script>
 {{end}}
