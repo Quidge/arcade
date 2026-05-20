@@ -39,6 +39,40 @@ export function rosterRow(page: Page, name: string) {
   return page.locator('#roster li').filter({ hasText: name });
 }
 
+export async function startRound(hostPage: Page, timerSeconds: string): Promise<void> {
+  await hostPage.locator('#timer-select').selectOption(timerSeconds);
+  await hostPage.getByRole('button', { name: 'Start' }).click();
+}
+
+export async function submitCaption(page: Page, text: string): Promise<void> {
+  await page.locator('#round-input').fill(text);
+  await page.getByRole('button', { name: 'Submit', exact: true }).click();
+}
+
+// drawStroke synthesizes a pointer-down → moves → pointer-up sequence
+// over #round-canvas using normalized [0..1] coords mapped against the
+// canvas's current bounding box. The Round 1 drawing handler listens
+// on Pointer Events, which Playwright's mouse APIs raise.
+export async function drawStroke(page: Page, points: Array<[number, number]>): Promise<void> {
+  if (points.length === 0) return;
+  const canvas = page.locator('#round-canvas');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('round canvas not in viewport');
+  const at = (n: [number, number]): [number, number] => [box.x + n[0] * box.width, box.y + n[1] * box.height];
+  const [sx, sy] = at(points[0]);
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  for (let i = 1; i < points.length; i++) {
+    const [px, py] = at(points[i]);
+    await page.mouse.move(px, py, { steps: 5 });
+  }
+  await page.mouse.up();
+}
+
+export async function submitDrawing(page: Page): Promise<void> {
+  await page.locator('#round-draw-submit-btn').click();
+}
+
 export const test = base.extend<{ twoPlayerLobby: TwoPlayerLobby }>({
   twoPlayerLobby: async ({ browser }, use) => {
     const aliceSetup = await createSession(browser);
