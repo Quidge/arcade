@@ -53,10 +53,11 @@ func TestLobbyHTMLContainsShareLinkScaffold(t *testing.T) {
 	}
 }
 
-func TestLobbyHTMLAcceptsLowercaseCodeAndCanonicalizes(t *testing.T) {
-	// The Parse step in joincode accepts mixed case but the
-	// canonical form is upper. The rendered page should serve the
-	// canonical URL so share-links stay stable.
+func TestLobbyHTMLAcceptsLowercaseCode(t *testing.T) {
+	// The Parse step in joincode accepts mixed case. handleLobby
+	// renders the lobby directly (no redirect) once Parse succeeds,
+	// so a lowercase URL hits 200 with the canonical (upper-case)
+	// join code embedded in the rendered HTML.
 	srv, _ := newApp(t)
 	code := createSession(t, srv)
 
@@ -67,10 +68,14 @@ func TestLobbyHTMLAcceptsLowercaseCodeAndCanonicalizes(t *testing.T) {
 		t.Fatalf("GET lowercase: %v", err)
 	}
 	defer resp.Body.Close()
-	// Either a redirect to the canonical form, or a direct 200 —
-	// both are acceptable shapes. The contract is "the lowercase
-	// form reaches the same session," not "exactly this status."
-	if resp.StatusCode >= 400 {
-		t.Errorf("lowercase URL status = %d, want < 400", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("lowercase URL status = %d want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if !strings.Contains(string(body), formatted) {
+		t.Errorf("rendered HTML for lowercase URL missing canonical code %q", formatted)
 	}
 }
