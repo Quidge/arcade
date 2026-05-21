@@ -6,10 +6,11 @@
 // The Provider is seedable so tests can pin the selection sequence,
 // and best-effort anti-collision is layered on top: when several
 // Ghosts on the same Round draw from a small library the Picker
-// prefers entries not yet handed out. Other slot kinds (guess
-// Caption, Drawing) are accepted by the interface so future slices
-// can extend without rework; only StarterCaption is exercised by
-// this slice.
+// prefers entries not yet handed out. All three slot kinds —
+// StarterCaption, GuessCaption, and Drawing — are stocked from
+// in-repo indexed-stub libraries sized to gamesession.MaxPlayers,
+// so a Round-end fill at the cap hands out distinct content without
+// hitting the fallback-to-repeat branch.
 package ghost
 
 import (
@@ -21,20 +22,21 @@ import (
 )
 
 // SlotKind discriminates the Entry shape a Ghost is being asked
-// to supply. Round 0 only uses StarterCaption; later slices add
-// GuessCaption (the response to a Drawing) and Drawing (the
-// response to a Caption).
+// to supply. Captions (StarterCaption, GuessCaption) are served
+// from the in-package string libraries via Pick; Drawings are
+// served from drawingLibrary via PickDrawing.
 type SlotKind int
 
 const (
-	// StarterCaption is the slot kind for Round 0 — the first
-	// Caption in a Chain, invented from nothing.
+	// StarterCaption is the slot kind for the first Caption in a
+	// Chain (even-numbered Rounds with no prior Drawing prompt),
+	// invented from nothing.
 	StarterCaption SlotKind = iota
 	// GuessCaption is the slot kind for Captions written in
-	// response to a Drawing. Stubbed for future use.
+	// response to a Drawing (even-numbered Rounds after Round 0).
 	GuessCaption
-	// Drawing is the slot kind for visual Entries. Stubbed for
-	// future use; this slice never picks a Drawing Ghost.
+	// Drawing is the slot kind for visual Entries. Served by
+	// PickDrawing rather than Pick.
 	Drawing
 )
 
