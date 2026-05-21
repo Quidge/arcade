@@ -53,7 +53,7 @@ test-integration:
 
 # run end-to-end UI tests (Playwright)
 test-e2e:
-    pnpm test:e2e
+    SCRIBBLE_E2E_PORT=$(wt step eval '{{{{ (branch ~ "---e2e") | hash_port }}') pnpm test:e2e
 
 # run all Go test tiers (e2e is invoked separately; see test-e2e)
 test-all: test-unit test-integration

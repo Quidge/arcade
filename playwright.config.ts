@@ -1,5 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// SCRIBBLE_E2E_PORT is set by the `just test-e2e` recipe to a
+// branch-specific hashed port (so two worktrees on the same machine
+// don't collide, and so `just web` and `just test-e2e` can run in
+// parallel on the same branch — they hash to different namespaces).
+// When unset (CI, or direct `pnpm test:e2e` invocation) the test
+// server uses port 3030.
+const port = process.env.SCRIBBLE_E2E_PORT ?? '3030';
+const baseURL = `http://localhost:${port}`;
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
@@ -8,16 +17,16 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:3030',
+    baseURL,
     trace: 'on-first-retry',
   },
   webServer: {
     command: 'go run .',
     env: {
-      ADDR: ':3030',
+      ADDR: `:${port}`,
       SCRIBBLE_HOST_DISCONNECT_GRACE_SECONDS: '1',
     },
-    url: 'http://localhost:3030/healthz',
+    url: `${baseURL}/healthz`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },
