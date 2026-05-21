@@ -41,17 +41,18 @@ const (
 	maxNameLength  = 32
 )
 
-// closePolicyCapExceeded / closePolicySuperseded / closePolicyKicked
-// are the machine-readable Reason strings used in the WebSocket
-// close frame for the named rejection cases. Integration tests
-// assert on the "session full" / "game already started" / "superseded"
-// / "kicked" prefixes.
-var closePolicyCapExceeded = fmt.Sprintf(
-	"session full: this game session already has %d players",
-	gamesession.MaxPlayers,
-)
-
-const (
+// closePolicy* are the machine-readable Reason strings used in the
+// WebSocket close frame for the named rejection cases. Integration
+// tests assert on the "session full" / "game already started" /
+// "superseded" / "kicked" prefixes. Grouped as a single block so
+// readers see the full set of close reasons at a glance; cap-
+// exceeded is computed from the constant rather than literal so
+// MaxPlayers stays the single source of truth.
+var (
+	closePolicyCapExceeded = fmt.Sprintf(
+		"session full: this game session already has %d players",
+		gamesession.MaxPlayers,
+	)
 	closePolicyGameStarted = "game already started: new joins are not accepted after Start"
 	closePolicySuperseded  = "superseded: another connection took over this seat"
 	closePolicyKicked      = "kicked: the host removed you from this game session"

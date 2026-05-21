@@ -28,9 +28,8 @@ import (
 type SlotKind int
 
 const (
-	// StarterCaption is the slot kind for the first Caption in a
-	// Chain (even-numbered Rounds with no prior Drawing prompt),
-	// invented from nothing.
+	// StarterCaption is the slot kind for Round 0 — the first
+	// Caption in a Chain, invented from nothing.
 	StarterCaption SlotKind = iota
 	// GuessCaption is the slot kind for Captions written in
 	// response to a Drawing (even-numbered Rounds after Round 0).
