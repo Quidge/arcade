@@ -73,23 +73,23 @@ func createSession(t *testing.T, srv *httptest.Server) string {
 	if !strings.HasPrefix(loc, prefix) {
 		t.Fatalf("Location = %q", loc)
 	}
-	canon, ok := joincode.Parse(strings.TrimPrefix(loc, prefix))
+	canonicalJoinCode, ok := joincode.Parse(strings.TrimPrefix(loc, prefix))
 	if !ok {
 		t.Fatalf("Location code %q does not parse", loc)
 	}
-	return canon
+	return canonicalJoinCode
 }
 
-func wsURL(srv *httptest.Server, code, name string) string {
+func wsURL(srv *httptest.Server, canonicalJoinCode, name string) string {
 	return "ws" + strings.TrimPrefix(srv.URL, "http") +
-		"/g/" + joincode.Format(code) + "/ws?name=" + name
+		"/g/" + joincode.Format(canonicalJoinCode) + "/ws?name=" + name
 }
 
-func dialAs(t *testing.T, srv *httptest.Server, code, name string) (*websocket.Conn, *http.Response) {
+func dialAs(t *testing.T, srv *httptest.Server, canonicalJoinCode, name string) (*websocket.Conn, *http.Response) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	c, resp, err := websocket.Dial(ctx, wsURL(srv, code, name), nil)
+	c, resp, err := websocket.Dial(ctx, wsURL(srv, canonicalJoinCode, name), nil)
 	if err != nil {
 		return nil, resp
 	}
@@ -140,9 +140,9 @@ func readUntil(t *testing.T, c *websocket.Conn, pred func(rosterMsg) bool) roste
 
 func TestTwoPlayersSeeEachOtherInRoster(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	if alice == nil {
 		t.Fatalf("Alice failed to connect")
 	}
@@ -153,7 +153,7 @@ func TestTwoPlayersSeeEachOtherInRoster(t *testing.T) {
 		t.Fatalf("initial roster for Alice: %+v", m)
 	}
 
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	if bob == nil {
 		t.Fatalf("Bob failed to connect")
 	}
@@ -190,12 +190,12 @@ func rosterContains(m rosterMsg, name string, host bool, connected bool) bool {
 
 func TestCapExceededRejected(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
 	conns := make([]*websocket.Conn, 0, gamesession.MaxPlayers)
 	for i := 0; i < gamesession.MaxPlayers; i++ {
 		name := "p" + string(rune('0'+i))
-		c, _ := dialAs(t, srv, code, name)
+		c, _ := dialAs(t, srv, canonicalJoinCode, name)
 		if c == nil {
 			t.Fatalf("Player %d failed to connect", i)
 		}
@@ -206,7 +206,7 @@ func TestCapExceededRejected(t *testing.T) {
 
 	dupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	over, _, err := websocket.Dial(dupCtx, wsURL(srv, code, "overflow"), nil)
+	over, _, err := websocket.Dial(dupCtx, wsURL(srv, canonicalJoinCode, "overflow"), nil)
 	if err != nil {
 		return
 	}
@@ -228,12 +228,12 @@ func TestCapExceededRejected(t *testing.T) {
 
 func TestCapExceededWithDisconnectedSeat(t *testing.T) {
 	srv, reg := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
 	conns := make([]*websocket.Conn, 0, gamesession.MaxPlayers)
 	for i := 0; i < gamesession.MaxPlayers; i++ {
 		name := "p" + string(rune('0'+i))
-		c, _ := dialAs(t, srv, code, name)
+		c, _ := dialAs(t, srv, canonicalJoinCode, name)
 		if c == nil {
 			t.Fatalf("Player %d failed to connect", i)
 		}
@@ -250,9 +250,9 @@ func TestCapExceededWithDisconnectedSeat(t *testing.T) {
 	// Poll the domain registry directly: this avoids racing the
 	// broadcast pump and the per-conn read buffers (which would
 	// require draining each conn under load).
-	session, ok := reg.Lookup(code)
+	session, ok := reg.Lookup(canonicalJoinCode)
 	if !ok {
-		t.Fatalf("session %q not found in registry", code)
+		t.Fatalf("session %q not found in registry", canonicalJoinCode)
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -280,7 +280,7 @@ func TestCapExceededWithDisconnectedSeat(t *testing.T) {
 
 	dupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	over, _, err := websocket.Dial(dupCtx, wsURL(srv, code, "overflow"), nil)
+	over, _, err := websocket.Dial(dupCtx, wsURL(srv, canonicalJoinCode, "overflow"), nil)
 	if err != nil {
 		// dial-time close treated as success.
 		return
@@ -318,9 +318,9 @@ func TestFirstClientHostBadgePersists(t *testing.T) {
 	// "Alice stays Host as Bob joins." The intent — Host badge does
 	// not migrate on non-Host joins — is unchanged.
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	if alice == nil {
 		t.Fatalf("Alice failed to connect")
 	}
@@ -330,7 +330,7 @@ func TestFirstClientHostBadgePersists(t *testing.T) {
 		t.Fatalf("Alice not host/connected in initial roster: %+v", m)
 	}
 
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	if bob == nil {
 		t.Fatalf("Bob failed to connect")
 	}
@@ -346,15 +346,15 @@ func TestFirstClientHostBadgePersists(t *testing.T) {
 
 func TestHostBadgePersistsAcrossDisconnectReconnect(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	if alice == nil {
 		t.Fatalf("Alice failed to connect")
 	}
 	_ = readRoster(t, alice)
 
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	if bob == nil {
 		t.Fatalf("Bob failed to connect")
 	}
@@ -376,7 +376,7 @@ func TestHostBadgePersistsAcrossDisconnectReconnect(t *testing.T) {
 	}
 
 	// Alice rejoins under the same name.
-	alice2, _ := dialAs(t, srv, code, "Alice")
+	alice2, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	if alice2 == nil {
 		t.Fatalf("Alice rejoin failed")
 	}
@@ -397,9 +397,9 @@ func TestHostBadgePersistsAcrossDisconnectReconnect(t *testing.T) {
 
 func TestSupersedeClosesOldConnection(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice1, _ := dialAs(t, srv, code, "Alice")
+	alice1, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	if alice1 == nil {
 		t.Fatalf("alice1 failed to connect")
 	}
@@ -408,7 +408,7 @@ func TestSupersedeClosesOldConnection(t *testing.T) {
 
 	// A second connection arrives under the same name. The first
 	// must be closed with the "superseded" reason.
-	alice2, _ := dialAs(t, srv, code, "Alice")
+	alice2, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	if alice2 == nil {
 		t.Fatalf("alice2 failed to connect")
 	}
@@ -446,7 +446,7 @@ func TestSupersedeClosesOldConnection(t *testing.T) {
 
 func TestConcurrentJoinsAndLeavesIsRaceFree(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
 	var wg sync.WaitGroup
 	for i := 0; i < gamesession.MaxPlayers; i++ {
@@ -454,7 +454,7 @@ func TestConcurrentJoinsAndLeavesIsRaceFree(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c, _ := dialAs(t, srv, code, name)
+			c, _ := dialAs(t, srv, canonicalJoinCode, name)
 			if c == nil {
 				return
 			}

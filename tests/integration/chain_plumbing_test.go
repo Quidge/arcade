@@ -29,12 +29,12 @@ func newAppWithServer(t *testing.T) (*httptest.Server, *gamesession.Registry, *w
 
 func TestRoundZeroEntriesLandInChainStore(t *testing.T) {
 	srv, _, webSrv := newAppWithServer(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
@@ -55,7 +55,7 @@ func TestRoundZeroEntriesLandInChainStore(t *testing.T) {
 	// observable through the network; let the server stabilize).
 	time.Sleep(20 * time.Millisecond)
 
-	cs := webSrv.ChainStoreForCode(code)
+	cs := webSrv.ChainStoreForCode(canonicalJoinCode)
 	if cs == nil {
 		t.Fatalf("ChainStoreForCode returned nil")
 	}
@@ -95,12 +95,12 @@ func TestRoundZeroEntriesLandInChainStore(t *testing.T) {
 
 func TestRoundZeroGhostEntryAttributedAndAppendedAsGhost(t *testing.T) {
 	srv, _, webSrv := newAppWithServer(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
@@ -116,7 +116,7 @@ func TestRoundZeroGhostEntryAttributedAndAppendedAsGhost(t *testing.T) {
 	_ = readUntilType(t, alice, "round-ended")
 	time.Sleep(20 * time.Millisecond)
 
-	cs := webSrv.ChainStoreForCode(code)
+	cs := webSrv.ChainStoreForCode(canonicalJoinCode)
 	chain1 := cs.Entries(1) // Bob's Chain
 	if len(chain1) != 1 {
 		t.Fatalf("Entries(1) len = %d want 1", len(chain1))

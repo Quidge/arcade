@@ -21,11 +21,11 @@ import (
 
 func TestLobbyHTMLContainsShareLinkScaffold(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	resp, err := http.Get(srv.URL + "/g/" + joincode.Format(code))
+	resp, err := http.Get(srv.URL + "/g/" + joincode.Format(canonicalJoinCode))
 	if err != nil {
-		t.Fatalf("GET /g/%s: %v", code, err)
+		t.Fatalf("GET /g/%s: %v", canonicalJoinCode, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -47,7 +47,7 @@ func TestLobbyHTMLContainsShareLinkScaffold(t *testing.T) {
 	// would copy out of the share-link; it should appear somewhere
 	// in the rendered HTML (page title, header, etc.) so a screen-
 	// reader user can confirm which session this is.
-	formatted := joincode.Format(code)
+	formatted := joincode.Format(canonicalJoinCode)
 	if !strings.Contains(html, formatted) {
 		t.Errorf("rendered lobby missing join code %q in HTML", formatted)
 	}
@@ -99,9 +99,9 @@ func TestHomeHTMLContainsHostFormAndJoinForm(t *testing.T) {
 
 func TestLobbyHEADReturns200ForExistingCode(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/"+joincode.Format(code), nil)
+	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/"+joincode.Format(canonicalJoinCode), nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -181,12 +181,12 @@ func TestLobbyHEADReturns404ForOffAlphabetCode(t *testing.T) {
 
 func TestLobbyHEADIsCaseAndDashTolerant(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
-	formatted := joincode.Format(code) // dashed, upper
+	canonicalJoinCode := createSession(t, srv)
+	formatted := joincode.Format(canonicalJoinCode) // dashed, upper
 	variants := []string{
 		formatted,
 		strings.ToLower(formatted),
-		code, // canonical, no dash
+		canonicalJoinCode, // canonical, no dash
 	}
 	for _, v := range variants {
 		req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/"+v, nil)
@@ -210,9 +210,9 @@ func TestLobbyHTMLAcceptsLowercaseCode(t *testing.T) {
 	// so a lowercase URL hits 200 with the canonical (upper-case)
 	// join code embedded in the rendered HTML.
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	formatted := joincode.Format(code)
+	formatted := joincode.Format(canonicalJoinCode)
 	lower := strings.ToLower(formatted)
 	resp, err := http.Get(srv.URL + "/g/" + lower)
 	if err != nil {

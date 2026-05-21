@@ -96,12 +96,12 @@ func startRound(t *testing.T, c *websocket.Conn, seconds *int) {
 
 func TestRoundZeroAllSubmitted(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
@@ -158,12 +158,12 @@ func TestRoundZeroAllSubmitted(t *testing.T) {
 
 func TestRoundZeroTimerExpiryWithAFKGhost(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
@@ -211,12 +211,12 @@ func TestRoundZeroTimerExpiryWithAFKGhost(t *testing.T) {
 
 func TestRoundZeroForceAdvance(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
@@ -260,12 +260,12 @@ func TestRoundZeroForceAdvance(t *testing.T) {
 
 func TestRoundZeroDraftSurvivesDisconnectReconnect(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
 
@@ -280,7 +280,7 @@ func TestRoundZeroDraftSurvivesDisconnectReconnect(t *testing.T) {
 	_ = bob.CloseNow()
 
 	// Bob reconnects under the same name.
-	bob2, _ := dialAs(t, srv, code, "Bob")
+	bob2, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob2.CloseNow()
 	// First the roster snapshot, then the unicast round-state.
 	rsPayload := readUntilType(t, bob2, "round-state")
@@ -316,12 +316,12 @@ func TestRoundZeroDraftSurvivesDisconnectReconnect(t *testing.T) {
 
 func TestRoundZeroReconnectAfterRoundEnd(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
 
@@ -335,7 +335,7 @@ func TestRoundZeroReconnectAfterRoundEnd(t *testing.T) {
 	_ = readUntilType(t, alice, "round-ended")
 
 	// Bob reconnects after round-end.
-	bob2, _ := dialAs(t, srv, code, "Bob")
+	bob2, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob2.CloseNow()
 	// He receives a round-ended (post-round placeholder), not a
 	// round-state.
@@ -351,12 +351,12 @@ func TestRoundZeroReconnectAfterRoundEnd(t *testing.T) {
 
 func TestRoundZeroAuthorization(t *testing.T) {
 	srv, reg := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
@@ -364,7 +364,7 @@ func TestRoundZeroAuthorization(t *testing.T) {
 	// Non-Host Bob tries to start.
 	sendCmd(t, bob, map[string]any{"type": "start"})
 	time.Sleep(50 * time.Millisecond)
-	session, _ := reg.Lookup(code)
+	session, _ := reg.Lookup(canonicalJoinCode)
 	st, _ := session.Phase()
 	if st != gamesession.StateLobby {
 		t.Errorf("phase after non-Host start = %v want StateLobby", st)
@@ -396,12 +396,12 @@ func TestRoundZeroAuthorization(t *testing.T) {
 
 func TestRoundZeroLateOrInvalidCommands(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
@@ -428,12 +428,12 @@ func TestRoundZeroLateOrInvalidCommands(t *testing.T) {
 
 func TestRoundZeroSubmitThenDisconnect(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)
 
@@ -468,12 +468,12 @@ func TestRoundZeroSubmitThenDisconnect(t *testing.T) {
 
 func TestRoundZeroTimerOffNoDeadline(t *testing.T) {
 	srv, _ := newApp(t)
-	code := createSession(t, srv)
+	canonicalJoinCode := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, code, "Alice")
+	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
-	bob, _ := dialAs(t, srv, code, "Bob")
+	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 2)
 	drainToRosterSize(t, bob, 2)

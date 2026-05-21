@@ -1,10 +1,35 @@
-// Package joincode implements the Crockford Base32 codec used for
-// GameSession join codes (ADR 0002).
+// Package joincode implements the codec for GameSession join codes —
+// short, human-readable identifiers used in URLs and shared by Hosts
+// to invite other Players (ADR 0002).
 //
-// The alphabet excludes I, L, O, and U so codes can be read aloud
-// without ambiguity. Input is case-insensitive and any dashes are
-// stripped. Canonical internal form is uppercase, no dash, 6 chars.
-// Display form is the canonical form with a dash after char 3.
+// # Forms
+//
+// A join code has two forms:
+//
+//   - Canonical form — 6 characters, uppercase, no dash. The internal
+//     representation; used as the registry key, in storage, and
+//     anywhere a code is compared. Name variables canonicalJoinCode.
+//   - Display form — 7 characters, uppercase, dashed after char 3
+//     (e.g. ABC-123). The form shown to users. Name variables
+//     displayJoinCode.
+//
+// Convert with Parse (any input → canonical) and Format (canonical →
+// display). Unvalidated input — e.g. an HTTP path value — should be
+// named rawJoinCode until Parse has accepted it.
+//
+// # Alphabet
+//
+// The 32-character alphabet excludes I, L, O, and U to avoid visual
+// confusion with 1, 1, 0, and V:
+//
+//	0123456789ABCDEFGHJKMNPQRSTVWXYZ
+//
+// When mirroring this alphabet in another language (regex, HTML
+// pattern, etc.), enumerate it directly: character-range shortcuts
+// like A-H plus J-N easily and silently re-admit excluded letters.
+// Any source file that duplicates the alphabet MUST carry a comment
+// above the duplicating expression pointing back to this package
+// doc.
 package joincode
 
 import (
@@ -14,9 +39,8 @@ import (
 	"strings"
 )
 
-// Alphabet is the 32-character Crockford-derived alphabet used by
-// scribble join codes. The letters I, L, O, U are deliberately
-// excluded.
+// Alphabet is the canonical Crockford-derived join-code alphabet;
+// see the package doc for forms, mirroring rules, and exclusions.
 const Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 // CodeLength is the canonical length of a generated join code (in

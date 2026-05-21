@@ -160,7 +160,7 @@ type Event struct {
 // GameSession is one in-progress lobby. The zero value is not
 // usable; callers should obtain a GameSession via Registry.Create.
 type GameSession struct {
-	code string
+	canonicalJoinCode string
 
 	mu      sync.Mutex
 	players map[string]Player
@@ -186,7 +186,7 @@ type GameSession struct {
 
 // Code returns the canonical 6-character join code for this
 // GameSession.
-func (g *GameSession) Code() string { return g.code }
+func (g *GameSession) Code() string { return g.canonicalJoinCode }
 
 // Phase returns the current State and active Round number. The
 // Round number is meaningful only in StateRoundActive and
@@ -725,29 +725,29 @@ func (r *Registry) Create() *GameSession {
 	// Generate until we find a code not already in use. Collisions
 	// are astronomically unlikely at our scale, but guarding here
 	// makes the invariant explicit.
-	var code string
+	var canonicalJoinCode string
 	for {
-		code = joincode.Generate()
-		if _, exists := r.sessions[code]; !exists {
+		canonicalJoinCode = joincode.Generate()
+		if _, exists := r.sessions[canonicalJoinCode]; !exists {
 			break
 		}
 	}
 
 	g := &GameSession{
-		code:              code,
+		canonicalJoinCode: canonicalJoinCode,
 		players:           map[string]Player{},
 		events:            make(chan Event, 16),
 		hostGraceDuration: r.hostGraceDuration,
 	}
-	r.sessions[code] = g
+	r.sessions[canonicalJoinCode] = g
 	return g
 }
 
 // Lookup returns the GameSession with the given canonical code,
 // or (nil, false) if no such session exists.
-func (r *Registry) Lookup(code string) (*GameSession, bool) {
+func (r *Registry) Lookup(canonicalJoinCode string) (*GameSession, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	g, ok := r.sessions[code]
+	g, ok := r.sessions[canonicalJoinCode]
 	return g, ok
 }
