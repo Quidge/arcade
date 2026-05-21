@@ -41,12 +41,19 @@ const (
 	maxNameLength  = 32
 )
 
-// closePolicyCapExceeded / closePolicySuperseded / closePolicyKicked
-// are the machine-readable Reason strings used in the WebSocket
-// close frame for the named rejection cases. Integration tests
-// assert on these.
-const (
-	closePolicyCapExceeded = "session full: this game session already has 8 players"
+// closePolicy* are the machine-readable Reason strings used in the
+// WebSocket close frame for the named rejection cases. Integration
+// tests assert on the "session full" / "game already started" /
+// "superseded" / "kicked" prefixes. Grouped as a single block so
+// readers see the full set of close reasons at a glance; cap-
+// exceeded is computed from the constant rather than literal so
+// MaxPlayers stays the single source of truth.
+var (
+	closePolicyCapExceeded = fmt.Sprintf(
+		"session full: this game session already has %d players",
+		gamesession.MaxPlayers,
+	)
+	closePolicyGameStarted = "game already started: new joins are not accepted after Start"
 	closePolicySuperseded  = "superseded: another connection took over this seat"
 	closePolicyKicked      = "kicked: the host removed you from this game session"
 )
@@ -328,6 +335,7 @@ type lobbyData struct {
 	baseData
 	Code        string // canonical, no dash
 	DisplayCode string // dashed display form
+	MaxPlayers  int    // exposed to the client-side rejection copy
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -360,6 +368,7 @@ func (s *Server) handleLobby(w http.ResponseWriter, r *http.Request) {
 		baseData:    s.baseData("Lobby"),
 		Code:        canon,
 		DisplayCode: joincode.Format(canon),
+		MaxPlayers:  gamesession.MaxPlayers,
 	})
 }
 
@@ -448,6 +457,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(domainErr, gamesession.ErrCapExceeded):
 			reason = closePolicyCapExceeded
+		case errors.Is(domainErr, gamesession.ErrGameStarted):
+			reason = closePolicyGameStarted
 		default:
 			reason = "join failed"
 		}

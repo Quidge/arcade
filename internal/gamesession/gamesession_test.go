@@ -717,18 +717,57 @@ func TestHostReconnectAfterGraceDoesNotReclaim(t *testing.T) {
 }
 
 func TestGraceSkipsDisconnectedNextInOrder(t *testing.T) {
-	// Requires N>=3 (skip the disconnected next, promote the one
-	// further down). With MaxPlayers temporarily clamped to 2,
-	// there is no "next in order" to skip past. Re-enable when the
-	// generalization slice unclamps the cap.
-	t.Skip("requires N>=3; MaxPlayers temporarily clamped to 2")
+	// N=3: Alice (Host), Bob, Carol. Bob is already disconnected
+	// when Alice's grace fires, so the badge skips Bob and lands
+	// on Carol (per ADR 0005: auto-migration prefers connected
+	// seats in join order).
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob", "Carol")
+
+		_, stop := startBackgroundDrain(g)
+		defer stop()
+
+		// Bob is already disconnected when Alice goes down.
+		g.Disconnect("Bob")
+		g.Disconnect("Alice")
+		time.Sleep(DefaultHostGraceDuration + time.Second)
+		synctest.Wait()
+		if got := hostName(g); got != "Carol" {
+			t.Errorf("Host after grace skip = %q want Carol", got)
+		}
+	})
 }
 
 func TestRecursiveAutoMigrateWhenNewHostDisconnects(t *testing.T) {
-	// Requires N>=3: Alice → Bob → Carol after two grace expiries.
-	// With MaxPlayers temporarily clamped to 2 there is no Carol
-	// to migrate to. Re-enable when the cap is lifted.
-	t.Skip("requires N>=3; MaxPlayers temporarily clamped to 2")
+	// N=3: Alice (Host), Bob, Carol. Alice disconnects → grace
+	// fires → Bob inherits Host. Then Bob also disconnects →
+	// second grace fires → Carol inherits Host. Validates that
+	// the grace timer re-arms when the badge moves to a seat
+	// that itself is (or becomes) disconnected.
+	synctest.Test(t, func(t *testing.T) {
+		r := NewRegistry()
+		g := r.Create()
+		seedPlayers(t, g, "Alice", "Bob", "Carol")
+
+		_, stop := startBackgroundDrain(g)
+		defer stop()
+
+		g.Disconnect("Alice")
+		time.Sleep(DefaultHostGraceDuration + time.Second)
+		synctest.Wait()
+		if got := hostName(g); got != "Bob" {
+			t.Fatalf("Host after first grace = %q want Bob", got)
+		}
+
+		g.Disconnect("Bob")
+		time.Sleep(DefaultHostGraceDuration + time.Second)
+		synctest.Wait()
+		if got := hostName(g); got != "Carol" {
+			t.Errorf("Host after second grace = %q want Carol", got)
+		}
+	})
 }
 
 func TestNonHostDisconnectDoesNotStartGrace(t *testing.T) {
@@ -1016,12 +1055,65 @@ func TestEndFromEndedRejected(t *testing.T) {
 	}
 }
 
-func TestThirdJoinExceedsCap(t *testing.T) {
+func TestJoinAtCapExceeded(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	names := make([]string, MaxPlayers)
+	for i := 0; i < MaxPlayers; i++ {
+		names[i] = fmt.Sprintf("p%d", i)
+	}
+	seedPlayers(t, g, names...)
+	if _, err := g.Join("overflow"); !errors.Is(err, ErrCapExceeded) {
+		t.Errorf("Join past MaxPlayers (%d): err=%v want ErrCapExceeded", MaxPlayers, err)
+	}
+}
+
+func TestStartWithOnePlayerReturnsErrTooFewPlayers(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice")
+	if err := g.Start("Alice"); !errors.Is(err, ErrTooFewPlayers) {
+		t.Errorf("Start with 1 player: err=%v want ErrTooFewPlayers", err)
+	}
+	st, _ := g.Phase()
+	if st != StateLobby {
+		t.Errorf("phase after rejected Start = %v want StateLobby", st)
+	}
+}
+
+func TestStartWithTwoPlayersSucceeds(t *testing.T) {
 	r := NewRegistry()
 	g := r.Create()
 	seedPlayers(t, g, "Alice", "Bob")
-	if _, err := g.Join("Carol"); !errors.Is(err, ErrCapExceeded) {
-		t.Errorf("third Join: err=%v want ErrCapExceeded", err)
+	if err := g.Start("Alice"); err != nil {
+		t.Errorf("Start with 2 players: %v", err)
+	}
+}
+
+func TestJoinAfterStartReturnsErrGameStarted(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := g.Join("Carol"); !errors.Is(err, ErrGameStarted) {
+		t.Errorf("Join post-Start with new name: err=%v want ErrGameStarted", err)
+	}
+}
+
+func TestReconnectAfterStartStillWorks(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	_, stop := startBackgroundDrain(g)
+	defer stop()
+	g.Disconnect("Bob")
+	if _, err := g.Reconnect("Bob"); err != nil {
+		t.Errorf("Reconnect post-Start with existing seat: %v", err)
 	}
 }
 

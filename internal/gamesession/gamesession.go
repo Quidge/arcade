@@ -32,9 +32,12 @@ import (
 
 // MaxPlayers is the hard cap on Players per GameSession. The cap
 // counts seats, connected or not: a disconnected seat blocks a
-// would-be 3rd joiner.
-// TEMPORARY: clamped to 2 until N≥3 generalization slice.
-const MaxPlayers = 2
+// would-be 11th joiner. Matches the cap documented in CONTEXT.md.
+const MaxPlayers = 10
+
+// MinPlayers is the floor for Start. Start refuses to launch a
+// GameSession with fewer than 2 seated Players (see ErrTooFewPlayers).
+const MinPlayers = 2
 
 // DefaultHostGraceDuration is the wait between a Host's Disconnect
 // and the auto-migration of the Host badge. ADR 0005 fixes this at
@@ -50,6 +53,17 @@ var ErrSeatExists = errors.New("gamesession: seat with that display name already
 // ErrCapExceeded is returned by Join when the GameSession already
 // holds MaxPlayers seats.
 var ErrCapExceeded = errors.New("gamesession: game session is full")
+
+// ErrGameStarted is returned by Join when the GameSession is no
+// longer in StateLobby. The roster is sealed at Start (per the
+// "Join" verb in CONTEXT.md and ADR 0008). Reconnect on an existing
+// seat is unaffected — it continues to work post-Start (per ADR 0003).
+var ErrGameStarted = errors.New("gamesession: cannot Join after Start; roster is sealed")
+
+// ErrTooFewPlayers is returned by Start when the roster holds fewer
+// than MinPlayers seats. Matches the "Start" verb requirement in
+// CONTEXT.md.
+var ErrTooFewPlayers = errors.New("gamesession: need at least 2 Players to Start")
 
 // ErrNotSeated is returned by Reconnect, Leave, and TransferHost
 // when the named seat does not exist.
@@ -185,11 +199,12 @@ func (g *GameSession) Phase() (State, int) {
 
 // Start transitions the GameSession from StateLobby into Round 0
 // (StateRoundActive). caller must be the current Host. Returns
-// ErrNotHost if the caller is not the Host, or ErrInvalidPhase if
-// the GameSession is not in the lobby. The timer duration is held
-// outside this domain (the Round controller owns it); Start carries
-// it here only as a forward-compatibility hook for tests/callers
-// that want to validate phase + Host atomically.
+// ErrNotHost if the caller is not the Host, ErrInvalidPhase if the
+// GameSession is not in the lobby, or ErrTooFewPlayers if the
+// roster holds fewer than MinPlayers seats. The timer duration is
+// held outside this domain (the Round controller owns it); Start
+// carries it here only as a forward-compatibility hook for tests/
+// callers that want to validate phase + Host atomically.
 //
 // On success, no Event is emitted on the session's channel —
 // callers wire the Round controller separately to broadcast the
@@ -202,6 +217,9 @@ func (g *GameSession) Start(caller string) error {
 	}
 	if g.currentHostLocked() != caller {
 		return ErrNotHost
+	}
+	if len(g.players) < MinPlayers {
+		return ErrTooFewPlayers
 	}
 	g.state = StateRoundActive
 	g.roundNum = 0
@@ -348,14 +366,19 @@ func (g *GameSession) currentHostLocked() string {
 // it to a live connection (Connected=true). The first seat in an
 // empty GameSession receives Host=true. Returns ErrSeatExists if a
 // seat with the name already exists (caller should dispatch to
-// Reconnect) or ErrCapExceeded if the GameSession already holds
-// MaxPlayers seats. On success, a PlayerJoined event is emitted
-// with a roster snapshot.
+// Reconnect), ErrGameStarted if the GameSession is no longer in
+// StateLobby (the roster sealed at Start), or ErrCapExceeded if
+// the GameSession already holds MaxPlayers seats. On success, a
+// PlayerJoined event is emitted with a roster snapshot.
 func (g *GameSession) Join(name string) (*Player, error) {
 	g.mu.Lock()
 	if _, exists := g.players[name]; exists {
 		g.mu.Unlock()
 		return nil, ErrSeatExists
+	}
+	if g.state != StateLobby {
+		g.mu.Unlock()
+		return nil, ErrGameStarted
 	}
 	if len(g.players) >= MaxPlayers {
 		g.mu.Unlock()

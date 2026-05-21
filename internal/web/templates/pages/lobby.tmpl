@@ -956,7 +956,12 @@
 		// reset to name entry for these.
 		if (reason.indexOf("session full") === 0) {
 			resetToNameEntry();
-			showNameError("This game session is full (8 players maximum).");
+			showNameError("This game session is full ({{.MaxPlayers}} players maximum).");
+			return;
+		}
+		if (reason.indexOf("game already started") === 0) {
+			resetToNameEntry();
+			showNameError("This game has already started. New players cannot join.");
 			return;
 		}
 		if (reason.indexOf("superseded") === 0) {
