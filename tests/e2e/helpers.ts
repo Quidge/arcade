@@ -34,6 +34,24 @@ export async function openSecondSeat(browser: Browser, lobbyURL: string): Promis
   return { context, page };
 }
 
+// joinN opens n browser contexts at lobbyURL and joins each one with
+// the given names. Used by the N=10 lobby smoke test. Returns the
+// per-seat handles in the same order as names so callers can refer
+// to them positionally (seats[0] is the Host, by convention).
+export async function joinN(
+  browser: Browser,
+  lobbyURL: string,
+  names: string[],
+): Promise<Array<{ context: BrowserContext; page: Page; name: string }>> {
+  const seats: Array<{ context: BrowserContext; page: Page; name: string }> = [];
+  for (const name of names) {
+    const seat = await openSecondSeat(browser, lobbyURL);
+    await joinAs(seat.page, name);
+    seats.push({ context: seat.context, page: seat.page, name });
+  }
+  return seats;
+}
+
 export async function joinAs(page: Page, name: string): Promise<void> {
   await page.getByLabel('Display name').fill(name);
   await page.getByRole('button', { name: 'Join', exact: true }).click();
