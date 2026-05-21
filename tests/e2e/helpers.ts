@@ -22,7 +22,7 @@ export async function createSession(browser: Browser): Promise<{ context: Browse
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto('/');
-  await page.getByRole('button', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Host a new game' }).click();
   await expect(page).toHaveURL(/\/g\/[0-9A-Z]{3}-[0-9A-Z]{3}$/);
   return { context, page, lobbyURL: page.url() };
 }

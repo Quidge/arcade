@@ -354,6 +354,10 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/g/"+joincode.Format(g.Code()), http.StatusSeeOther)
 }
 
+// handleLobby renders the lobby page. Registered as a GET route; Go
+// 1.22's net/http dispatches HEAD requests to the same handler with
+// an empty body, and the homepage's join-by-code probe depends on
+// that — do not add an explicit method check (per ADR 0014).
 func (s *Server) handleLobby(w http.ResponseWriter, r *http.Request) {
 	canon, ok := joincode.Parse(r.PathValue("code"))
 	if !ok {

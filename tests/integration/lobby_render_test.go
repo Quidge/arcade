@@ -53,6 +53,134 @@ func TestLobbyHTMLContainsShareLinkScaffold(t *testing.T) {
 	}
 }
 
+func TestHomeHTMLContainsHostFormAndJoinForm(t *testing.T) {
+	srv, _ := newApp(t)
+
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	html := string(body)
+
+	// Host form: existing POST /g remains the create path.
+	if !strings.Contains(html, `action="/g"`) || !strings.Contains(html, `method="POST"`) {
+		t.Errorf("rendered home missing POST /g host form")
+	}
+	if !strings.Contains(html, "Host a new game") {
+		t.Errorf("rendered home missing 'Host a new game' button label")
+	}
+
+	// Join form: code input with the agreed-on attributes.
+	wantInputAttrs := []string{
+		`id="join-code"`,
+		`autocomplete="off"`,
+		`autocapitalize="characters"`,
+		`pattern=`,
+		`maxlength="7"`,
+		`inputmode="text"`,
+	}
+	for _, a := range wantInputAttrs {
+		if !strings.Contains(html, a) {
+			t.Errorf("rendered home missing join-code attribute %q", a)
+		}
+	}
+	if !strings.Contains(html, `id="join-error"`) {
+		t.Errorf("rendered home missing join-error band")
+	}
+}
+
+func TestLobbyHEADReturns200ForExistingCode(t *testing.T) {
+	srv, _ := newApp(t)
+	code := createSession(t, srv)
+
+	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/"+joincode.Format(code), nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD existing code status = %d want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("HEAD response body should be empty, got %d bytes", len(body))
+	}
+}
+
+func TestLobbyHEADReturns404ForUnknownCode(t *testing.T) {
+	srv, _ := newApp(t)
+
+	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/Z9Z-Z9Z", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("HEAD unknown code status = %d want 404", resp.StatusCode)
+	}
+}
+
+func TestLobbyHEADReturns404ForMalformedCode(t *testing.T) {
+	srv, _ := newApp(t)
+
+	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/not-a-code", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("HEAD malformed code status = %d want 404", resp.StatusCode)
+	}
+}
+
+func TestLobbyHEADIsCaseAndDashTolerant(t *testing.T) {
+	srv, _ := newApp(t)
+	code := createSession(t, srv)
+	formatted := joincode.Format(code) // dashed, upper
+	variants := []string{
+		formatted,
+		strings.ToLower(formatted),
+		code, // canonical, no dash
+	}
+	for _, v := range variants {
+		req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/"+v, nil)
+		if err != nil {
+			t.Fatalf("NewRequest %q: %v", v, err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("HEAD %q: %v", v, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("HEAD %q status = %d want 200", v, resp.StatusCode)
+		}
+	}
+}
+
 func TestLobbyHTMLAcceptsLowercaseCode(t *testing.T) {
 	// The Parse step in joincode accepts mixed case. handleLobby
 	// renders the lobby directly (no redirect) once Parse succeeds,

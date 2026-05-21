@@ -10,15 +10,28 @@ test.describe('Scenario 0001 — lobby journey at N=10', () => {
     const aliceCtx = await browser.newContext();
     const alice = await aliceCtx.newPage();
     await alice.goto('/');
-    await alice.getByRole('button', { name: 'New game' }).click();
+    await alice.getByRole('button', { name: 'Host a new game' }).click();
     await expect(alice).toHaveURL(/\/g\/[0-9A-Z]{3}-[0-9A-Z]{3}$/);
     const lobbyURL = alice.url();
+    const lobbyCode = lobbyURL.match(/\/g\/([0-9A-Z]{3}-[0-9A-Z]{3})$/)![1];
     await joinAs(alice, 'Alice');
     await expect(rosterRow(alice, 'Alice').locator('.host-badge')).toHaveText('Host');
 
-    // Bring the roster to 10 by adding 9 more seats.
-    const others = ['Bob', 'Carol', 'Dave', 'Eve', 'Frank', 'Grace', 'Heidi', 'Ivan', 'Judy'];
-    const seats = await joinN(browser, lobbyURL, others);
+    // Bob — the first joiner — arrives via the homepage code input. This
+    // exercises the real joiner journey (they have a code, not a URL);
+    // see ADR 0014. Subsequent joiners use the direct-URL helper.
+    const bobCtx = await browser.newContext();
+    const bobPage = await bobCtx.newPage();
+    await bobPage.goto('/');
+    await bobPage.getByLabel('Game code').fill(lobbyCode);
+    await bobPage.getByRole('button', { name: 'Join', exact: true }).click();
+    await expect(bobPage).toHaveURL(lobbyURL);
+    await joinAs(bobPage, 'Bob');
+    const bobSeat = { context: bobCtx, page: bobPage, name: 'Bob' };
+
+    // Bring the roster to 10 by adding 8 more seats via direct URL.
+    const others = ['Carol', 'Dave', 'Eve', 'Frank', 'Grace', 'Heidi', 'Ivan', 'Judy'];
+    const seats = [bobSeat, ...(await joinN(browser, lobbyURL, others))];
 
     try {
       await test.step('Alice and the last joiner both see a 10-seat roster with Alice still Host', async () => {
