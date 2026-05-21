@@ -73,23 +73,23 @@ func createSession(t *testing.T, srv *httptest.Server) string {
 	if !strings.HasPrefix(loc, prefix) {
 		t.Fatalf("Location = %q", loc)
 	}
-	canon, ok := joincode.Parse(strings.TrimPrefix(loc, prefix))
+	canonicalJoinCode, ok := joincode.Parse(strings.TrimPrefix(loc, prefix))
 	if !ok {
 		t.Fatalf("Location code %q does not parse", loc)
 	}
-	return canon
+	return canonicalJoinCode
 }
 
-func wsURL(srv *httptest.Server, code, name string) string {
+func wsURL(srv *httptest.Server, canonicalJoinCode, name string) string {
 	return "ws" + strings.TrimPrefix(srv.URL, "http") +
-		"/g/" + joincode.Format(code) + "/ws?name=" + name
+		"/g/" + joincode.Format(canonicalJoinCode) + "/ws?name=" + name
 }
 
-func dialAs(t *testing.T, srv *httptest.Server, code, name string) (*websocket.Conn, *http.Response) {
+func dialAs(t *testing.T, srv *httptest.Server, canonicalJoinCode, name string) (*websocket.Conn, *http.Response) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	c, resp, err := websocket.Dial(ctx, wsURL(srv, code, name), nil)
+	c, resp, err := websocket.Dial(ctx, wsURL(srv, canonicalJoinCode, name), nil)
 	if err != nil {
 		return nil, resp
 	}

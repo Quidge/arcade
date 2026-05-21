@@ -55,11 +55,11 @@ func sendCmd(t *testing.T, c *websocket.Conn, cmd map[string]any) {
 // waitForHost polls the domain registry until the named code's
 // session has the given player marked Host. Bypasses WebSocket
 // read buffers so the test isn't sensitive to broadcast ordering.
-func waitForHost(t *testing.T, reg *gamesession.Registry, code, name string) {
+func waitForHost(t *testing.T, reg *gamesession.Registry, canonicalJoinCode, name string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		session, ok := reg.Lookup(code)
+		session, ok := reg.Lookup(canonicalJoinCode)
 		if ok {
 			for _, p := range session.Roster() {
 				if p.Host && p.Name == name {
@@ -74,11 +74,11 @@ func waitForHost(t *testing.T, reg *gamesession.Registry, code, name string) {
 
 // waitForRosterSize polls until the named session's roster has
 // exactly want seats.
-func waitForRosterSize(t *testing.T, reg *gamesession.Registry, code string, want int) {
+func waitForRosterSize(t *testing.T, reg *gamesession.Registry, canonicalJoinCode string, want int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		session, ok := reg.Lookup(code)
+		session, ok := reg.Lookup(canonicalJoinCode)
 		if ok && len(session.Roster()) == want {
 			return
 		}

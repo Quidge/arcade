@@ -317,8 +317,8 @@ func parseTmpl(page string) *template.Template {
 func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.handleHome)
 	mux.HandleFunc("POST /g", s.handleCreate)
-	mux.HandleFunc("GET /g/{code}", s.handleLobby)
-	mux.HandleFunc("GET /g/{code}/ws", s.handleWS)
+	mux.HandleFunc("GET /g/{rawJoinCode}", s.handleLobby)
+	mux.HandleFunc("GET /g/{rawJoinCode}/ws", s.handleWS)
 }
 
 type baseData struct {
@@ -359,19 +359,19 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 // an empty body, and the homepage's join-by-code probe depends on
 // that — do not add an explicit method check (per ADR 0014).
 func (s *Server) handleLobby(w http.ResponseWriter, r *http.Request) {
-	canon, ok := joincode.Parse(r.PathValue("code"))
+	canonicalJoinCode, ok := joincode.Parse(r.PathValue("rawJoinCode"))
 	if !ok {
 		s.renderNotFound(w)
 		return
 	}
-	if _, found := s.registry.Lookup(canon); !found {
+	if _, found := s.registry.Lookup(canonicalJoinCode); !found {
 		s.renderNotFound(w)
 		return
 	}
 	render(w, s.tmpl.lobby, "base.tmpl", lobbyData{
 		baseData:    s.baseData("Lobby"),
-		Code:        canon,
-		DisplayCode: joincode.Format(canon),
+		Code:        canonicalJoinCode,
+		DisplayCode: joincode.Format(canonicalJoinCode),
 		MaxPlayers:  gamesession.MaxPlayers,
 	})
 }
@@ -394,12 +394,12 @@ func (h wsConnHandle) Close(reason string) {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
-	canon, ok := joincode.Parse(r.PathValue("code"))
+	canonicalJoinCode, ok := joincode.Parse(r.PathValue("rawJoinCode"))
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	session, found := s.registry.Lookup(canon)
+	session, found := s.registry.Lookup(canonicalJoinCode)
 	if !found {
 		http.NotFound(w, r)
 		return
@@ -428,7 +428,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// by closing its handle; the prior handler's deferred Release
 	// will return wasCurrent=false and skip its Disconnect, leaving
 	// the seat's connection state for us to own.
-	key := canon + "/" + name
+	key := canonicalJoinCode + "/" + name
 	prior, gen := s.seats.Acquire(key, wsConnHandle{c: conn})
 	if prior != nil {
 		prior.Close(closePolicySuperseded)
@@ -513,7 +513,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		s.handleCommand(session, room, canon, name, data)
+		s.handleCommand(session, room, canonicalJoinCode, name, data)
 	}
 }
 
@@ -523,7 +523,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 // connection — authorization checks (e.g. only Host can kick) are
 // applied here. Errors are logged and discarded; the WS remains
 // open so the client can retry.
-func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState, canon, selfName string, data []byte) {
+func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState, canonicalJoinCode, selfName string, data []byte) {
 	var cmd clientCmd
 	if err := json.Unmarshal(data, &cmd); err != nil {
 		log.Printf("ws cmd parse from %s: %v", selfName, err)
@@ -554,7 +554,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 			log.Printf("kick %s by %s: %v", target, selfName, err)
 			return
 		}
-		s.seats.Close(canon+"/"+target, closePolicyKicked)
+		s.seats.Close(canonicalJoinCode+"/"+target, closePolicyKicked)
 		broadcastNotice(b, fmt.Sprintf("%s was kicked from the game", target))
 	case "leave":
 		// A seat may always leave itself. If the leaver was the
@@ -569,7 +569,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 			log.Printf("leave %s: %v", selfName, err)
 			return
 		}
-		s.seats.Close(canon+"/"+selfName, "")
+		s.seats.Close(canonicalJoinCode+"/"+selfName, "")
 		if !wasHost {
 			broadcastNotice(b, fmt.Sprintf("%s left the game", selfName))
 		}
@@ -1105,10 +1105,10 @@ func broadcastNotice(b *presence.Broadcaster, text string) {
 // nil if no room has been created. Exposed for integration tests
 // that need to assert on Chain plumbing without driving the wire
 // format.
-func (s *Server) ChainStoreForCode(code string) *chain.Store {
+func (s *Server) ChainStoreForCode(canonicalJoinCode string) *chain.Store {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, ok := s.rooms[code]
+	r, ok := s.rooms[canonicalJoinCode]
 	if !ok {
 		return nil
 	}
