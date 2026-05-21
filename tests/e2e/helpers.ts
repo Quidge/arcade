@@ -17,6 +17,13 @@ export type TwoPlayerLobby = {
   lobbyURL: string;
 };
 
+export type ThreePlayerLobby = {
+  alice: Seat;
+  bob: Seat;
+  carol: Seat;
+  lobbyURL: string;
+};
+
 export async function createSession(browser: Browser): Promise<{ context: BrowserContext; page: Page; lobbyURL: string }> {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -127,7 +134,10 @@ export async function completeRoundOne(alicePage: Page, bobPage: Page): Promise<
   }
 }
 
-export const test = base.extend<{ twoPlayerLobby: TwoPlayerLobby }>({
+export const test = base.extend<{
+  twoPlayerLobby: TwoPlayerLobby;
+  threePlayerLobby: ThreePlayerLobby;
+}>({
   twoPlayerLobby: async ({ browser }, use) => {
     const aliceSetup = await createSession(browser);
     await joinAs(aliceSetup.page, 'Alice');
@@ -151,6 +161,31 @@ export const test = base.extend<{ twoPlayerLobby: TwoPlayerLobby }>({
     // that case.
     await aliceSetup.context.close();
     await bobSetup.context.close();
+  },
+  threePlayerLobby: async ({ browser }, use) => {
+    const aliceSetup = await createSession(browser);
+    await joinAs(aliceSetup.page, 'Alice');
+
+    const bobSetup = await openSecondSeat(browser, aliceSetup.lobbyURL);
+    await joinAs(bobSetup.page, 'Bob');
+
+    const carolSetup = await openSecondSeat(browser, aliceSetup.lobbyURL);
+    await joinAs(carolSetup.page, 'Carol');
+
+    for (const page of [aliceSetup.page, bobSetup.page, carolSetup.page]) {
+      await expect(page.locator('#roster li')).toHaveCount(3);
+    }
+
+    await use({
+      alice: { context: aliceSetup.context, page: aliceSetup.page, name: 'Alice' },
+      bob: { context: bobSetup.context, page: bobSetup.page, name: 'Bob' },
+      carol: { context: carolSetup.context, page: carolSetup.page, name: 'Carol' },
+      lobbyURL: aliceSetup.lobbyURL,
+    });
+
+    await aliceSetup.context.close();
+    await bobSetup.context.close();
+    await carolSetup.context.close();
   },
 });
 
