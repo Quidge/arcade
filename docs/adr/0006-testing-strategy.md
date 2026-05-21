@@ -8,7 +8,7 @@ Three tiers of automated and quasi-automated verification, each with a distinct 
 
 3. **End-to-end UI tests — `tests/e2e/`, Playwright specs exercising the rendered DOM through real browsers.** TypeScript `.spec.ts` files driving Chromium, Firefox, and WebKit via `@playwright/test`. Each spec spins up the real binary via Playwright's `webServer` config, opens one or more browser contexts (mapping to distinct Players), and asserts on visible DOM and WebSocket-driven state transitions. This tier replaces the earlier `tests/scenario/` prose contracts — see ADR 0012, which supersedes this ADR's prior rejection of Playwright.
 
-E2E tests are not run by `go test`. They live behind their own `pnpm test:e2e` invocation (or `just test-e2e`) and are gated in CI as a separate stage after `test-all`. The integration tier still covers the protocol layer; the e2e tier covers what only a real browser can — visible DOM, WebSocket-driven roster updates across tabs, drawing canvas interactions, and the like.
+E2E tests are not run by `go test`. They live behind their own `pnpm test:e2e` invocation (or `just test-e2e`). The integration tier still covers the protocol layer; the e2e tier covers what only a real browser can — visible DOM, WebSocket-driven roster updates across tabs, drawing canvas interactions, and the like.
 
 ## Considered Options
 
@@ -20,6 +20,6 @@ E2E tests are not run by `go test`. They live behind their own `pnpm test:e2e` i
 
 ## Consequences
 
-- The `justfile` exposes `test-unit` (default, untagged `go test ./...`), `test-integration` (`go test -tags=integration ./tests/integration/...`), `test-e2e` (`pnpm test:e2e`, runs Playwright), and `test-all` (the Go tiers in sequence). E2E is not yet folded into `test-all` because it is slower and depends on the Node toolchain; CI runs it as a separate stage after `test-all` passes.
+- The `justfile` exposes `test-unit` (default, untagged `go test ./...`), `test-integration` (`go test -tags=integration ./tests/integration/...`), `test-e2e` (`pnpm test:e2e`, runs Playwright), and `test-all` (the Go tiers in sequence). E2E is not folded into `test-all` because it is slower and depends on the Node toolchain; it is invoked separately as a local pre-merge step.
 - "Deep module" is the organizing principle for what gets a focused unit test. Working definition: a module whose interface is small relative to its implementation. Examples in the current design: Crockford Base32 codec, GameSession registry, Host promotion engine, Round controller, Draft store, Ghost provider. When in doubt, ask whether the test covers a single small API with rich behavior behind it — if yes, unit; if it composes multiple such APIs, integration.
 - Visual conformance verification is supplied by the Playwright tier under `tests/e2e/`. Per ADR 0012, this replaces the earlier manual-PR-review-with-prose-contracts stopgap. New visual surface should land with at least one Playwright spec covering its golden path.
