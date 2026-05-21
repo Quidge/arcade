@@ -401,6 +401,10 @@ func TestRoundZeroLateOrInvalidCommands(t *testing.T) {
 	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
+	bob, _ := dialAs(t, srv, code, "Bob")
+	defer bob.CloseNow()
+	drainToRosterSize(t, alice, 2)
+	drainToRosterSize(t, bob, 2)
 
 	// In lobby: draft/submit/advance are no-ops, conn stays open.
 	sendCmd(t, alice, map[string]any{"type": "draft", "text": "premature"})
@@ -469,6 +473,10 @@ func TestRoundZeroTimerOffNoDeadline(t *testing.T) {
 	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
+	bob, _ := dialAs(t, srv, code, "Bob")
+	defer bob.CloseNow()
+	drainToRosterSize(t, alice, 2)
+	drainToRosterSize(t, bob, 2)
 
 	// seconds:null → off.
 	startRound(t, alice, nil)
@@ -482,7 +490,7 @@ func TestRoundZeroTimerOffNoDeadline(t *testing.T) {
 	}
 
 	// Round only ends on Force advance (no all-submitted possible
-	// with 1 player not submitting, no timer).
+	// without a timer if some seats never submit).
 	sendCmd(t, alice, map[string]any{"type": "advance"})
 	_ = readUntilType(t, alice, "round-ended")
 }

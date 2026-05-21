@@ -1016,12 +1016,65 @@ func TestEndFromEndedRejected(t *testing.T) {
 	}
 }
 
-func TestThirdJoinExceedsCap(t *testing.T) {
+func TestJoinAtCapExceeded(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	names := make([]string, MaxPlayers)
+	for i := 0; i < MaxPlayers; i++ {
+		names[i] = fmt.Sprintf("p%d", i)
+	}
+	seedPlayers(t, g, names...)
+	if _, err := g.Join("overflow"); !errors.Is(err, ErrCapExceeded) {
+		t.Errorf("Join past MaxPlayers (%d): err=%v want ErrCapExceeded", MaxPlayers, err)
+	}
+}
+
+func TestStartWithOnePlayerReturnsErrTooFewPlayers(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice")
+	if err := g.Start("Alice"); !errors.Is(err, ErrTooFewPlayers) {
+		t.Errorf("Start with 1 player: err=%v want ErrTooFewPlayers", err)
+	}
+	st, _ := g.Phase()
+	if st != StateLobby {
+		t.Errorf("phase after rejected Start = %v want StateLobby", st)
+	}
+}
+
+func TestStartWithTwoPlayersSucceeds(t *testing.T) {
 	r := NewRegistry()
 	g := r.Create()
 	seedPlayers(t, g, "Alice", "Bob")
-	if _, err := g.Join("Carol"); !errors.Is(err, ErrCapExceeded) {
-		t.Errorf("third Join: err=%v want ErrCapExceeded", err)
+	if err := g.Start("Alice"); err != nil {
+		t.Errorf("Start with 2 players: %v", err)
+	}
+}
+
+func TestJoinAfterStartReturnsErrGameStarted(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := g.Join("Carol"); !errors.Is(err, ErrGameStarted) {
+		t.Errorf("Join post-Start with new name: err=%v want ErrGameStarted", err)
+	}
+}
+
+func TestReconnectAfterStartStillWorks(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if err := g.Start("Alice"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	_, stop := startBackgroundDrain(g)
+	defer stop()
+	g.Disconnect("Bob")
+	if _, err := g.Reconnect("Bob"); err != nil {
+		t.Errorf("Reconnect post-Start with existing seat: %v", err)
 	}
 }
 

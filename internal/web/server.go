@@ -46,7 +46,8 @@ const (
 // close frame for the named rejection cases. Integration tests
 // assert on these.
 const (
-	closePolicyCapExceeded = "session full: this game session already has 8 players"
+	closePolicyCapExceeded = "session full: this game session already has 10 players"
+	closePolicyGameStarted = "game already started: new joins are not accepted after Start"
 	closePolicySuperseded  = "superseded: another connection took over this seat"
 	closePolicyKicked      = "kicked: the host removed you from this game session"
 )
@@ -448,6 +449,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(domainErr, gamesession.ErrCapExceeded):
 			reason = closePolicyCapExceeded
+		case errors.Is(domainErr, gamesession.ErrGameStarted):
+			reason = closePolicyGameStarted
 		default:
 			reason = "join failed"
 		}
