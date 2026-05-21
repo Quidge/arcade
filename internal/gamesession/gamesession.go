@@ -673,7 +673,9 @@ type RegistryOption func(*Registry)
 
 // WithHostGraceDuration overrides the default 15-second auto-
 // migrate grace window. Intended for tests that don't want to
-// wait 15 real seconds for the timer to fire.
+// wait 15 real seconds for the timer to fire. The integration
+// tier calls this directly; the e2e tier reaches it through the
+// SCRIBBLE_HOST_DISCONNECT_GRACE_SECONDS env var wired in main.
 func WithHostGraceDuration(d time.Duration) RegistryOption {
 	return func(r *Registry) { r.hostGraceDuration = d }
 }
