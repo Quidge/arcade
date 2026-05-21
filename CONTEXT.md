@@ -5,7 +5,7 @@ Scribble is a small web app for playing a digital reimagining of Telestrations �
 ## Language
 
 **GameSession**:
-A single play instance of one game in the Scribble suite, capped at 8 Players. Has a Host-configured Round timer (15–120s in 15s increments, or off). Starts when the Host clicks "Start," walks through N Rounds and a per-Chain Reveal, and ends when the Host explicitly ends the GameSession (typically after the Reveal has completed but available at any time).
+A single play instance of one game in the Scribble suite, capped at 10 Players. Has a Host-configured Round timer (15–120s in 15s increments, or off). Starts when the Host clicks "Start," walks through N Rounds and a per-Chain Reveal, and ends when the Host explicitly ends the GameSession (typically after the Reveal has completed but available at any time).
 _Avoid_: game (alone — overloaded with the game-type concept), session (alone — overloaded with HTTP/auth-session), room, match, instance
 
 **Player**:
@@ -51,7 +51,7 @@ _Avoid_: working copy, sketch, scratch
 ## Verbs
 
 **Join**:
-A new Player takes a seat in the GameSession. Happens when a WebSocket upgrade arrives with a display name no existing seat holds and capacity allows. Creates the seat, establishes the first connection, and (if the GameSession was empty) confers Host. Fails with a capacity error if the 8-Player cap is already reached.
+A new Player takes a seat in the GameSession. Happens when a WebSocket upgrade arrives with a display name no existing seat holds and capacity allows. Creates the seat, establishes the first connection, and (if the GameSession was empty) confers Host. Lobby-only: once the GameSession has Started, a fresh display name is rejected — the roster is sealed at Start. (Reconnect with an *existing* display name still works post-Start; see ADR 0003.) Fails with a capacity error if the 10-Player cap is already reached.
 
 **Reconnect**:
 An existing seat is re-bound to a new live connection. Happens when a WebSocket upgrade arrives with a display name an existing seat already holds. If the seat already had a live connection, that prior connection is superseded — the new connection wins. No authentication step; any WebSocket upgrade typing a held name takes the seat (trust model per ADR 0003).
@@ -60,10 +60,10 @@ An existing seat is re-bound to a new live connection. Happens when a WebSocket 
 A Player's live WebSocket connection ends. The seat persists with its Host status, join-order position, and any server-held state intact. The Player remains a member of the GameSession.
 
 **Leave**:
-A Player's seat is removed from the GameSession. In the lobby, triggered by a Host kick, a voluntary "leave game" action, or the GameSession ending — frees the display name and the slot toward the 8-Player cap, distinct from Disconnect. Once the GameSession has started, Leave and Kick no longer remove the seat: they collapse into the same Disconnected state as a connection drop (seat persists, Connected flips to false, Ghost fills any missing Entries, Host drives the absent starter's reveal). The only seat-removal path post-Start is the GameSession ending. See ADR 0009.
+A Player's seat is removed from the GameSession. In the lobby, triggered by a Host kick, a voluntary "leave game" action, or the GameSession ending — frees the display name and the slot toward the 10-Player cap, distinct from Disconnect. Once the GameSession has started, Leave and Kick no longer remove the seat: they collapse into the same Disconnected state as a connection drop (seat persists, Connected flips to false, Ghost fills any missing Entries, Host drives the absent starter's reveal). The only seat-removal path post-Start is the GameSession ending. See ADR 0009.
 
 **Start**:
-The Host transitions the GameSession from the lobby into its first Round. One-way: once Started, a GameSession cannot return to the lobby. The Host's selected Round timer (15–120s in 15s increments, or off) is sealed at Start time and applies to every Round.
+The Host transitions the GameSession from the lobby into its first Round. Requires at least 2 seated Players. One-way: once Started, a GameSession cannot return to the lobby, and the roster is sealed — no new Joins after Start (existing seats can still Reconnect). The Host's selected Round timer (15–120s in 15s increments, or off) is sealed at Start time and applies to every Round.
 
 **Submit**:
 A Player explicitly finalizes their Draft as their Entry for the current Round. One-way — a submitted Draft cannot be edited or un-submitted. A Player who submits and then Disconnects stays submitted; their Entry is the snapshot taken at submit time. Submitting does not, on its own, end the Round: the Round ends only when every seat has submitted, the timer expires, or the Host force-advances.
@@ -79,7 +79,7 @@ The Host explicitly ends the GameSession, terminating the room. Available to the
 
 ## Relationships
 
-- A **GameSession** has 2 to 8 **Players** (the floor of 2 is preserved for testing and small-group hobby use; the board game is typically more fun with 4+)
+- A **GameSession** has 2 to 10 **Players** (the floor of 2 is preserved for testing and small-group hobby use; the board game is typically more fun with 4+)
 - A **GameSession** with N **Players** has N **Chains**
 - A **Chain** belongs to one starting **Player** (its starter) — the one who wrote its starter Caption and who sees its reveal
 - A **Chain** with N Players has N **Entries**, alternating **Caption** and **Drawing** — index 0 is always the starter Caption, index 1 a Drawing, index 2 a guess Caption, index 3 a Drawing, etc.

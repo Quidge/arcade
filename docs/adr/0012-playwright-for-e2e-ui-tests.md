@@ -21,3 +21,7 @@ Concretely: the UI now spans the lobby, host controls, two distinct Round flows 
 - **`justfile` gains a `test-e2e` recipe.** `test-all` does not run e2e — e2e is slower, requires a Node toolchain, and is invoked as a separate local pre-merge step rather than alongside `go test`. Revisit if/when run-times allow folding it in.
 - **`docs/stories/` remains parked.** A persona-flavored narrative tier was considered alongside this change; the duplication concern with prose-style e2e tests was a major reason that idea felt soft. With e2e now being code rather than prose, the question of whether stories add value as a separate narrative tier becomes cleaner to answer — but it is not answered by this ADR.
 - **Reversibility:** this is reversible-with-effort. If Playwright proves wrong for the project, the specs can be deleted, the package.json and lockfile removed, and the prose contracts re-emphasized as the manual-verification artifact. The cost is the spec work already invested; there is no protocol or schema lock-in.
+
+## Amended by ADR 0013
+
+This ADR chose Playwright as the runner and addressed mechanics (toolchain, browser binaries, justfile recipe) but did not pin scope discipline for what gets written *in* Playwright specs. ADR 0013 adds that: a test belongs in the e2e tier only if no lower tier can give equal confidence, and each e2e spec maps to one user journey. The runner choice and mechanics here are unchanged; ADR 0013 is additive scope discipline for spec admission.
