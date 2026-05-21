@@ -1,3 +1,8 @@
+// Locator strategy: role-first (getByRole/getByLabel) for affordances
+// users would describe by name; falls back to CSS IDs only where a
+// role-based locator isn't stable (e.g., #round-canvas, the two
+// distinct Submit buttons on the round and draw panels).
+
 import { test as base, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 export type Seat = {
@@ -73,6 +78,37 @@ export async function submitDrawing(page: Page): Promise<void> {
   await page.locator('#round-draw-submit-btn').click();
 }
 
+// reachRoundOne walks both players from a fresh two-player lobby
+// through Round 0 (each submits a starter caption) and into the
+// Round 1 drawing panel. Used by any scenario that needs Round 1 or
+// later as a starting state.
+export async function reachRoundOne(
+  alicePage: Page,
+  bobPage: Page,
+  timerSeconds: string,
+): Promise<void> {
+  await startRound(alicePage, timerSeconds);
+  await expect(alicePage.locator('#round-panel')).toBeVisible();
+  await expect(bobPage.locator('#round-panel')).toBeVisible();
+  await submitCaption(alicePage, 'a wizard losing an argument with a goose');
+  await submitCaption(bobPage, 'two squirrels reviewing a contract');
+  for (const page of [alicePage, bobPage]) {
+    await expect(page.locator('#round-draw-panel')).toBeVisible();
+  }
+}
+
+// completeRoundOne draws a short stroke for each player and submits
+// both, transitioning the room into the Reveal phase.
+export async function completeRoundOne(alicePage: Page, bobPage: Page): Promise<void> {
+  await drawStroke(alicePage, [[0.2, 0.2], [0.6, 0.4], [0.8, 0.7]]);
+  await drawStroke(bobPage, [[0.3, 0.7], [0.5, 0.5], [0.7, 0.3]]);
+  await submitDrawing(alicePage);
+  await submitDrawing(bobPage);
+  for (const page of [alicePage, bobPage]) {
+    await expect(page.locator('#reveal-panel')).toBeVisible();
+  }
+}
+
 export const test = base.extend<{ twoPlayerLobby: TwoPlayerLobby }>({
   twoPlayerLobby: async ({ browser }, use) => {
     const aliceSetup = await createSession(browser);
@@ -90,6 +126,11 @@ export const test = base.extend<{ twoPlayerLobby: TwoPlayerLobby }>({
       lobbyURL: aliceSetup.lobbyURL,
     });
 
+    // Tests that close alice/bob contexts mid-flow (e.g. disconnect
+    // simulations) leave the underlying contexts already closed when
+    // teardown runs. Playwright's BrowserContext.close() is documented
+    // as safe to call multiple times, so these calls are no-ops in
+    // that case.
     await aliceSetup.context.close();
     await bobSetup.context.close();
   },

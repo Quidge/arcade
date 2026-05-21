@@ -1,51 +1,20 @@
 import {
   test,
   expect,
-  createSession,
   joinAs,
   openSecondSeat,
   startRound,
-  submitCaption,
   drawStroke,
   submitDrawing,
+  reachRoundOne,
+  completeRoundOne,
 } from './helpers';
-
-// Helper used by most tests: walk a fresh twoPlayerLobby fixture
-// through Round 0 (both players submit captions) and into Round 1.
-async function reachRoundOne(
-  alice: { page: import('@playwright/test').Page; name: string },
-  bob: { page: import('@playwright/test').Page; name: string },
-  timerSeconds: string,
-): Promise<void> {
-  await startRound(alice.page, timerSeconds);
-  await expect(alice.page.locator('#round-panel')).toBeVisible();
-  await expect(bob.page.locator('#round-panel')).toBeVisible();
-  await submitCaption(alice.page, 'a wizard losing an argument with a goose');
-  await submitCaption(bob.page, 'two squirrels reviewing a contract');
-  for (const page of [alice.page, bob.page]) {
-    await expect(page.locator('#round-draw-panel')).toBeVisible();
-  }
-}
-
-// Helper: walk Round 1 by drawing on both canvases and submitting.
-async function completeRoundOne(
-  alice: { page: import('@playwright/test').Page },
-  bob: { page: import('@playwright/test').Page },
-): Promise<void> {
-  await drawStroke(alice.page, [[0.2, 0.2], [0.6, 0.4], [0.8, 0.7]]);
-  await drawStroke(bob.page, [[0.3, 0.7], [0.5, 0.5], [0.7, 0.3]]);
-  await submitDrawing(alice.page);
-  await submitDrawing(bob.page);
-  for (const page of [alice.page, bob.page]) {
-    await expect(page.locator('#reveal-panel')).toBeVisible();
-  }
-}
 
 test.describe('Scenario 0002 — Round 1 drawing', () => {
   test('Both players draw, submit, and the room advances to Reveal', async ({ twoPlayerLobby }) => {
     const { alice, bob } = twoPlayerLobby;
 
-    await reachRoundOne(alice, bob, '60');
+    await reachRoundOne(alice.page, bob.page, '60');
 
     await test.step('Drawing prompts cross-pollinate: each player sees the other\'s Round 0 caption', async () => {
       await expect(alice.page.locator('#round-draw-prompt')).toHaveText('two squirrels reviewing a contract');
@@ -87,7 +56,7 @@ test.describe('Scenario 0002 — Round 1 drawing', () => {
 
   test('Undo last stroke removes the most recent stroke', async ({ twoPlayerLobby }) => {
     const { alice, bob } = twoPlayerLobby;
-    await reachRoundOne(alice, bob, '60');
+    await reachRoundOne(alice.page, bob.page, '60');
 
     // We can't read the canvas pixel buffer to count strokes from a
     // headless browser without flake. Instead, exercise the affordance
@@ -109,8 +78,8 @@ test.describe('Scenario 0002 — Round 1 drawing', () => {
 test.describe('Scenario 0002 — Reveal', () => {
   test('Reveal walks Alice\'s Chain then Bob\'s Chain to complete; End game tears the room down', async ({ twoPlayerLobby }) => {
     const { alice, bob } = twoPlayerLobby;
-    await reachRoundOne(alice, bob, '60');
-    await completeRoundOne(alice, bob);
+    await reachRoundOne(alice.page, bob.page, '60');
+    await completeRoundOne(alice.page, bob.page);
 
     await test.step('Reveal opens on Alice\'s Chain with Alice driving', async () => {
       for (const page of [alice.page, bob.page]) {
@@ -177,8 +146,8 @@ test.describe('Scenario 0002 — Reveal', () => {
 
   test('Driver fallback: when starter is absent, Host drives; on rejoin, control snaps back', async ({ browser, twoPlayerLobby }) => {
     const { alice, bob, lobbyURL } = twoPlayerLobby;
-    await reachRoundOne(alice, bob, '60');
-    await completeRoundOne(alice, bob);
+    await reachRoundOne(alice.page, bob.page, '60');
+    await completeRoundOne(alice.page, bob.page);
 
     await test.step('Alice walks her own Chain through step → step → full', async () => {
       await alice.page.getByRole('button', { name: 'Next' }).click(); // → step 2
@@ -233,7 +202,7 @@ test.describe('Scenario 0002 — End game', () => {
 test.describe('Scenario 0002 — Ghost responses', () => {
   test('Empty drawing slot gets Ghost-filled and shows the Ghost tag in Reveal', async ({ twoPlayerLobby }) => {
     const { alice, bob } = twoPlayerLobby;
-    await reachRoundOne(alice, bob, '60');
+    await reachRoundOne(alice.page, bob.page, '60');
 
     await test.step('Alice draws and submits; Bob leaves his canvas empty; Alice (Host) Force advances', async () => {
       await drawStroke(alice.page, [[0.2, 0.3], [0.6, 0.5], [0.8, 0.7]]);

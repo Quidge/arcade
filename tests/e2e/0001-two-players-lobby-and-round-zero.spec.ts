@@ -250,7 +250,6 @@ test.describe('Scenario 0001 — Round 0 starter Caption', () => {
       for (const page of [alice.page, bob.page]) {
         await expect(page.locator('#round-panel')).toBeVisible();
         await expect(page.getByRole('heading', { name: /Round 0 — Starter Caption/ })).toBeVisible();
-        await expect(page.locator('#round-input')).toBeFocused().catch(() => { /* focus heuristic varies by browser */ });
         await expect(page.locator('#round-countdown')).toContainText(/Time left: \d:\d{2}/);
       }
     });
@@ -358,8 +357,14 @@ test.describe('Scenario 0001 — failure modes', () => {
   test('Lobby rejects an over-cap join with the session-full error', async ({ browser, twoPlayerLobby }) => {
     // MaxPlayers is currently clamped to 2 (see
     // internal/gamesession/gamesession.go:37 — "TEMPORARY: clamped to
-    // 2 until N≥3 generalization slice"). When the cap moves to 8,
-    // bump this test's setup accordingly.
+    // 2 until N≥3 generalization slice"). When the cap moves to its
+    // real value (8), this test's setup needs more joiners.
+    //
+    // The assertion below pins the full user-visible string from the
+    // JS in lobby.tmpl so it serves as a tripwire: while MaxPlayers=2,
+    // the "(8 players maximum)" copy is a known mismatch with the
+    // actual cap; when MaxPlayers moves, this assertion will break
+    // and force the JS copy to be reconciled in the same change.
     const { lobbyURL } = twoPlayerLobby;
 
     const thirdCtx = await browser.newContext();
@@ -367,7 +372,7 @@ test.describe('Scenario 0001 — failure modes', () => {
     await third.goto(lobbyURL);
     await third.getByLabel('Display name').fill('Charlie');
     await third.getByRole('button', { name: 'Join', exact: true }).click();
-    await expect(third.locator('#name-error')).toContainText(/session is full/);
+    await expect(third.locator('#name-error')).toHaveText('This game session is full (8 players maximum).');
     await thirdCtx.close();
   });
 });
