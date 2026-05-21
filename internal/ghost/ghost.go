@@ -38,47 +38,57 @@ const (
 	Drawing
 )
 
-// starterCaptionLibrary is the in-repo canned starter Caption
-// library. Phrasing is deliberately on the goofy side of plausible
-// so Ghost Entries read as part of the joke when they land in a
-// Chain. Keep entries short (one sentence) per the encouraged
-// shape from CONTEXT.md.
-var starterCaptionLibrary = []string{
-	"a cat playing a tiny piano",
-	"the moon eating a hamburger",
-	"two squirrels reviewing a contract",
-	"a wizard losing an argument with a goose",
-	"the inventor of the spoon takes a victory lap",
-	"a robot reading a love letter in a forest",
-	"a librarian discovers a secret door behind the encyclopedias",
-	"three penguins waiting in line for an espresso",
-	"a knight fighting an aggressively polite ghost",
-	"the world's smallest dragon and its enormous lunch",
-	"a marching band made entirely of frogs",
-	"someone's grandmother accidentally invents jazz",
+// ghostLibrarySize is the number of entries in each indexed-stub
+// library. Matches gamesession.MaxPlayers so that a Round-end fill
+// at the cap can hand out one distinct Ghost Entry per absent seat
+// without falling back to the exhaustion branch in Pick.
+const ghostLibrarySize = 10
+
+// starterCaptionLibrary, guessCaptionLibrary, and drawingLibrary
+// are indexed stubs (e.g. "Ghost starter 1".."Ghost starter 10",
+// 10 single-stroke horizontal lines). The stubs exist for
+// observability — at any N up to the cap, each absent Player's
+// Ghost contributes visibly-distinct content so a reader can tell
+// the absences apart in the Reveal. Real curated content is a
+// separate concern; see issue #43.
+//
+// guessCaptionLibrary is kept separate from starterCaptionLibrary
+// because the starter shape is expected to stay a flat list while
+// the guess shape will plausibly need context-awareness in a
+// future refactor.
+var (
+	starterCaptionLibrary = generateStubCaptions("Ghost starter ", ghostLibrarySize)
+	guessCaptionLibrary   = generateStubCaptions("Ghost guess ", ghostLibrarySize)
+	drawingLibrary        = generateStubDrawings(ghostLibrarySize)
+)
+
+func generateStubCaptions(prefix string, n int) []string {
+	out := make([]string, n)
+	for i := 0; i < n; i++ {
+		out[i] = prefix + strconv.Itoa(i+1)
+	}
+	return out
+}
+
+// generateStubDrawings returns n horizontal-line single-stroke
+// drawings, evenly spaced top to bottom at y = (i+1) / (n+1) so
+// that no entry lands on the top or bottom edge.
+func generateStubDrawings(n int) [][]strokes.Stroke {
+	out := make([][]strokes.Stroke, n)
+	for i := 0; i < n; i++ {
+		y := float64(i+1) / float64(n+1)
+		out[i] = []strokes.Stroke{
+			{{X: 0.1, Y: y}, {X: 0.9, Y: y}},
+		}
+	}
+	return out
 }
 
 // genericFallback is returned for slot kinds the library does not
-// yet stock. Round 0 never reaches it — kept here so callers can
-// pass any SlotKind without crashing while later slices grow the
-// library.
+// yet stock. In normal play it is effectively unreachable now that
+// every SlotKind has a library; kept as a defense so callers can
+// pass any SlotKind without crashing.
 const genericFallback = "(ghost — content coming soon)"
-
-// drawingLibrary holds canned Drawings the Ghost can hand out for
-// Drawing slots. MVP ships a single entry — a triangle whose three
-// strokes meet at three vertices in normalized 0..1 coordinates.
-// Anti-collision structure is preserved (a Picker tracks "used"
-// per-Round) but is vacuous at library size 1.
-var drawingLibrary = [][]strokes.Stroke{
-	{
-		// Top vertex (0.5, 0.15) → bottom-right vertex (0.85, 0.85).
-		{{X: 0.50, Y: 0.15}, {X: 0.85, Y: 0.85}},
-		// Bottom-right (0.85, 0.85) → bottom-left (0.15, 0.85).
-		{{X: 0.85, Y: 0.85}, {X: 0.15, Y: 0.85}},
-		// Bottom-left (0.15, 0.85) → top (0.50, 0.15).
-		{{X: 0.15, Y: 0.85}, {X: 0.50, Y: 0.15}},
-	},
-}
 
 // Provider hands out canned Entries on behalf of absent Players.
 // The zero value is not usable; obtain one via New.
@@ -112,9 +122,7 @@ func (p *Provider) Picker() *Picker {
 // from drawingLibrary using the same best-effort anti-collision
 // pattern as Pick (track which entries have been handed out by
 // this Picker; fall back to a random repeat if the library is
-// exhausted). At MVP scale the library holds a single triangle so
-// every call returns the same Drawing — the anti-collision
-// scaffolding is preserved for when the library grows.
+// exhausted).
 func (p *Picker) PickDrawing(player string) []strokes.Stroke {
 	if len(drawingLibrary) == 0 {
 		return nil
@@ -187,6 +195,8 @@ func libraryFor(kind SlotKind) []string {
 	switch kind {
 	case StarterCaption:
 		return starterCaptionLibrary
+	case GuessCaption:
+		return guessCaptionLibrary
 	default:
 		return nil
 	}
