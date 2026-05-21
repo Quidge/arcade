@@ -1,13 +1,139 @@
 {{define "content"}}
-<h1>Start a game</h1>
+<style>
+	.home-section {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.6rem;
+		padding: 1.5rem;
+		margin-bottom: 1.25rem;
+	}
+	.home-section h2 {
+		margin: 0 0 0.75rem;
+		font-size: 1.1rem;
+		font-weight: 600;
+	}
+	.home-or {
+		text-align: center;
+		color: var(--muted);
+		font-size: 0.85rem;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		margin: 0.5rem 0 1rem;
+	}
+	#join-error {
+		margin-bottom: 0.75rem;
+		padding: 0.6rem 0.75rem;
+		background: var(--danger-bg);
+		color: var(--danger-fg);
+		border-radius: 0.4rem;
+		font-size: 0.95rem;
+	}
+	.hidden { display: none !important; }
+	#join-form .field-row { margin-top: 0.25rem; }
+	#join-code {
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	}
+</style>
+
+<h1>Play scribble</h1>
 <p class="lede">A Telestrations-style party game for friends at a dinner table.</p>
 
-<form action="/g" method="POST">
-	<button type="submit" class="btn">New game</button>
-</form>
+<section class="home-section" aria-labelledby="join-heading">
+	<h2 id="join-heading">Join a game</h2>
+	<form id="join-form" novalidate>
+		<div id="join-error" class="hidden" role="alert"></div>
+		<label for="join-code">Game code</label>
+		<div class="field-row">
+			<input
+				id="join-code"
+				name="code"
+				class="input"
+				type="text"
+				required
+				pattern="[0-9A-HJKM-NP-TV-Za-hjkm-np-tv-z]{3}-?[0-9A-HJKM-NP-TV-Za-hjkm-np-tv-z]{3}"
+				title="6-character game code, e.g. ABC-DEF"
+				placeholder="ABC-DEF"
+				maxlength="7"
+				autocomplete="off"
+				autocapitalize="characters"
+				autocorrect="off"
+				spellcheck="false"
+				inputmode="text"
+			>
+			<button id="join-btn" type="submit" class="btn" disabled>Join</button>
+		</div>
+	</form>
+</section>
 
-<p style="margin-top: 2rem; color: var(--muted); font-size: 0.95rem;">
-	Click "New game" and you'll get a short code (like <code>A4B-K9P</code>) to share with your group.
-	Each person opens the link, picks a display name, and joins.
-</p>
+<p class="home-or">or</p>
+
+<section class="home-section" aria-labelledby="host-heading">
+	<h2 id="host-heading">Host a game</h2>
+	<form action="/g" method="POST">
+		<button type="submit" class="btn">Host a new game</button>
+	</form>
+	<p style="margin-top: 1rem; color: var(--muted); font-size: 0.95rem;">
+		You'll get a short code (like <code>A4B-K9P</code>) to read out to your group.
+	</p>
+</section>
+
+<script>
+(function () {
+	var form = document.getElementById('join-form');
+	var input = document.getElementById('join-code');
+	var btn = document.getElementById('join-btn');
+	var err = document.getElementById('join-error');
+	// Alphabet mirrors joincode.Alphabet (Crockford-derived: no I, L, O, U).
+	var alphabet = /^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{6}$/;
+
+	function canonical(raw) {
+		return raw.replace(/-/g, '').toUpperCase();
+	}
+	function shapeOK(raw) {
+		return alphabet.test(canonical(raw));
+	}
+	function showError(msg) {
+		err.textContent = msg;
+		err.classList.remove('hidden');
+	}
+	function clearError() {
+		err.classList.add('hidden');
+		err.textContent = '';
+	}
+
+	input.addEventListener('input', function () {
+		btn.disabled = !shapeOK(input.value);
+		if (!err.classList.contains('hidden')) clearError();
+	});
+
+	form.addEventListener('submit', function (ev) {
+		ev.preventDefault();
+		var code = canonical(input.value);
+		if (!shapeOK(input.value)) return;
+		btn.disabled = true;
+		fetch('/g/' + encodeURIComponent(code), { method: 'HEAD' })
+			.then(function (resp) {
+				if (resp.ok) {
+					// Use the dashed form to match the host-create
+					// redirect target so URL bars don't differ
+					// depending on entry path.
+					window.location = '/g/' + code.slice(0, 3) + '-' + code.slice(3);
+					return;
+				}
+				if (resp.status === 404) {
+					showError('No game with that code.');
+				} else {
+					showError("Couldn't reach the server — try again.");
+				}
+				btn.disabled = false;
+			})
+			.catch(function () {
+				showError("Couldn't reach the server — try again.");
+				btn.disabled = false;
+			});
+	});
+})();
+</script>
 {{end}}
