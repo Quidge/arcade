@@ -5,7 +5,7 @@
 # ///
 
 """
-Display: `<Model name> | <tokens used> | [<branch> [🌳 if worktree]] | <CC session UUID>`
+Display: `<tokens used> | [<branch> [🌳 if worktree]] | <CC session UUID> | <Model name>`
 
 The git segment is omitted when the working directory is not inside a git repo.
 """
@@ -91,12 +91,12 @@ def generate_status_line(data):
     git = git_segment(cwd) if cwd else None
 
     parts = [
-        f"{CYAN}{model_name}{RESET}",
         f"{usage_color(used_pct)}{format_tokens(used_tokens)} used{RESET}",
     ]
     if git:
         parts.append(git)
     parts.append(f"{DIM}{session_id}{RESET}")
+    parts.append(f"{CYAN}{model_name}{RESET}")
     return " | ".join(parts)
 
 
