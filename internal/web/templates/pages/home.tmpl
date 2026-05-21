@@ -52,7 +52,7 @@
 				class="input"
 				type="text"
 				required
-				{{/* alphabet mirrors internal/joincode.Alphabet — see that package's doc */}}
+				{{/* Alphabet mirrors internal/joincode.Alphabet (no I, L, O, U) — see that package's doc. */}}
 				pattern="[0-9A-HJKM-NP-TV-Za-hjkm-np-tv-z]{3}-?[0-9A-HJKM-NP-TV-Za-hjkm-np-tv-z]{3}"
 				title="6-character game code, e.g. ABC-DEF"
 				placeholder="ABC-DEF"
@@ -86,7 +86,7 @@
 	var input = document.getElementById('join-code');
 	var btn = document.getElementById('join-btn');
 	var err = document.getElementById('join-error');
-	// alphabet mirrors internal/joincode.Alphabet — see that package's doc
+	// Alphabet mirrors internal/joincode.Alphabet (no I, L, O, U) — see that package's doc.
 	var alphabet = /^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{6}$/;
 
 	function canonical(raw) {

@@ -11,10 +11,10 @@ test.describe('Scenario 0001 — lobby journey at N=10', () => {
     const alice = await aliceCtx.newPage();
     await alice.goto('/');
     await alice.getByRole('button', { name: 'Host a new game' }).click();
-    // matches the URL shape of a join-code path — a superset of joincode.Alphabet
+    // Matches the URL shape of a join-code path — a superset of joincode.Alphabet.
     await expect(alice).toHaveURL(/\/g\/[0-9A-Z]{3}-[0-9A-Z]{3}$/);
     const lobbyURL = alice.url();
-    // matches the URL shape of a join-code path — a superset of joincode.Alphabet
+    // Matches the URL shape of a join-code path — a superset of joincode.Alphabet.
     const lobbyCode = lobbyURL.match(/\/g\/([0-9A-Z]{3}-[0-9A-Z]{3})$/)![1];
     await joinAs(alice, 'Alice');
     await expect(rosterRow(alice, 'Alice').locator('.host-badge')).toHaveText('Host');

@@ -23,7 +23,7 @@ export async function createSession(browser: Browser): Promise<{ context: Browse
   const page = await context.newPage();
   await page.goto('/');
   await page.getByRole('button', { name: 'Host a new game' }).click();
-  // matches the URL shape of a join-code path — a superset of joincode.Alphabet
+  // Matches the URL shape of a join-code path — a superset of joincode.Alphabet.
   await expect(page).toHaveURL(/\/g\/[0-9A-Z]{3}-[0-9A-Z]{3}$/);
   return { context, page, lobbyURL: page.url() };
 }
