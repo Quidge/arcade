@@ -54,11 +54,11 @@ func drawIntoRoundOneAndEnd(t *testing.T, srv any, alice, bob *websocket.Conn) {
 
 func TestRevealBroadcastsAtRevealStartWithStarterAndDriverAndChainZero(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 
 	drawIntoRoundOneAndEnd(t, srv, alice, bob)
@@ -98,7 +98,7 @@ func TestRevealBroadcastsAtRevealStartWithStarterAndDriverAndChainZero(t *testin
 		t.Errorf("bob's view of driver = %q want Alice", msgB.Driver)
 	}
 
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	st, _ := session.Phase()
 	if st != gamesession.StateReveal {
 		t.Errorf("phase = %v want StateReveal", st)
@@ -107,11 +107,11 @@ func TestRevealBroadcastsAtRevealStartWithStarterAndDriverAndChainZero(t *testin
 
 func TestRevealStepFullCompleteWalkForNEquals2(t *testing.T) {
 	srv, _ := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 
 	drawIntoRoundOneAndEnd(t, srv, alice, bob)
@@ -206,11 +206,11 @@ func TestRevealStepFullCompleteWalkForNEquals2(t *testing.T) {
 
 func TestRevealDriverEligibilityHostFallbackAndStarterReconnect(t *testing.T) {
 	srv, _ := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 
 	drawIntoRoundOneAndEnd(t, srv, alice, bob)
 	_ = readUntilType(t, alice, "reveal-state")
@@ -243,7 +243,7 @@ func TestRevealDriverEligibilityHostFallbackAndStarterReconnect(t *testing.T) {
 	}
 
 	// Bob reconnects mid-reveal-of-his-Chain.
-	bob2, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob2, _ := dialAs(t, srv, code, "Bob")
 	defer bob2.CloseNow()
 	// Bob2's writePhaseSnapshot unicasts a reveal-state showing the
 	// driver as Bob now (he's reconnected and is the chain starter).
@@ -270,11 +270,11 @@ func TestRevealDriverEligibilityHostFallbackAndStarterReconnect(t *testing.T) {
 
 func TestRevealGhostEntryCarriesGhostFlagAndLabel(t *testing.T) {
 	srv, _ := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 
 	// Round 0: alice submits, bob doesn't → bob's caption is Ghost.

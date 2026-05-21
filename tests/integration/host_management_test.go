@@ -89,16 +89,16 @@ func waitForRosterSize(t *testing.T, reg *gamesession.Registry, canonicalJoinCod
 
 func TestVoluntaryHostTransferMovesBadgeAndBroadcastsNotice(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	if alice == nil {
 		t.Fatalf("Alice dial failed")
 	}
 	defer alice.CloseNow()
 	_ = readRoster(t, alice)
 
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	if bob == nil {
 		t.Fatalf("Bob dial failed")
 	}
@@ -108,7 +108,7 @@ func TestVoluntaryHostTransferMovesBadgeAndBroadcastsNotice(t *testing.T) {
 	// Alice transfers Host to Bob.
 	sendCmd(t, alice, map[string]any{"type": "transfer-host", "target": "Bob"})
 
-	waitForHost(t, reg, canonicalJoinCode, "Bob")
+	waitForHost(t, reg, code, "Bob")
 	// Alice should now show Bob as Host on the wire.
 	m := readUntil(t, alice, func(m rosterMsg) bool {
 		return rosterContains(m, "Bob", true, true) && rosterContains(m, "Alice", false, true)
@@ -120,12 +120,12 @@ func TestVoluntaryHostTransferMovesBadgeAndBroadcastsNotice(t *testing.T) {
 
 func TestVoluntaryTransferIgnoredFromNonHost(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	_ = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
 
@@ -134,7 +134,7 @@ func TestVoluntaryTransferIgnoredFromNonHost(t *testing.T) {
 
 	// Give the server a beat; Host should remain Alice.
 	time.Sleep(50 * time.Millisecond)
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	host := ""
 	for _, p := range session.Roster() {
 		if p.Host {
@@ -148,12 +148,12 @@ func TestVoluntaryTransferIgnoredFromNonHost(t *testing.T) {
 
 func TestHostKickRemovesSeatAndClosesTargetConn(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	_ = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
 
@@ -181,27 +181,27 @@ func TestHostKickRemovesSeatAndClosesTargetConn(t *testing.T) {
 	}
 
 	// Domain state: Bob's seat is gone.
-	waitForRosterSize(t, reg, canonicalJoinCode, 1)
+	waitForRosterSize(t, reg, code, 1)
 }
 
 func TestKickedPlayerComesBackAsFreshJoin(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	_ = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
 
 	sendCmd(t, alice, map[string]any{"type": "kick", "target": "Bob"})
-	waitForRosterSize(t, reg, canonicalJoinCode, 1)
+	waitForRosterSize(t, reg, code, 1)
 	_ = bob.CloseNow()
 
 	// Bob comes back. He hits Join (no seat exists), so the new
 	// Bob is Connected=true and (since Alice still holds the
 	// badge) non-Host — a fresh seat, not a Reconnect.
-	bob2, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob2, _ := dialAs(t, srv, code, "Bob")
 	if bob2 == nil {
 		t.Fatalf("Bob re-join failed")
 	}
@@ -214,12 +214,12 @@ func TestKickedPlayerComesBackAsFreshJoin(t *testing.T) {
 
 func TestKickByNonHostIsIgnored(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	_ = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
 
@@ -227,17 +227,17 @@ func TestKickByNonHostIsIgnored(t *testing.T) {
 	sendCmd(t, bob, map[string]any{"type": "kick", "target": "Alice"})
 
 	time.Sleep(50 * time.Millisecond)
-	waitForRosterSize(t, reg, canonicalJoinCode, 2) // no removal
+	waitForRosterSize(t, reg, code, 2) // no removal
 }
 
 func TestVoluntaryLeaveRemovesSelfAndBroadcasts(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	_ = readUntil(t, alice, func(m rosterMsg) bool { return len(m.Players) == 2 })
 
@@ -246,7 +246,7 @@ func TestVoluntaryLeaveRemovesSelfAndBroadcasts(t *testing.T) {
 	// Bob's WS will be closed by the server; Alice should see his
 	// seat removed (roster shrinks to 1).
 	_ = readUntil(t, alice, func(m rosterMsg) bool { return len(m.Players) == 1 })
-	waitForRosterSize(t, reg, canonicalJoinCode, 1)
+	waitForRosterSize(t, reg, code, 1)
 }
 
 func TestVoluntaryLeaveByHostMigratesImmediately(t *testing.T) {
@@ -255,12 +255,12 @@ func TestVoluntaryLeaveByHostMigratesImmediately(t *testing.T) {
 	// fail by timeout — i.e., migration without waiting proves the
 	// path is not gated on the timer.
 	srv, reg := newAppWithGrace(t, 10*time.Second)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	_ = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
 
@@ -268,47 +268,47 @@ func TestVoluntaryLeaveByHostMigratesImmediately(t *testing.T) {
 
 	// Bob should be Host within a normal RTT, well under the
 	// 10s grace window.
-	waitForHost(t, reg, canonicalJoinCode, "Bob")
-	waitForRosterSize(t, reg, canonicalJoinCode, 1)
+	waitForHost(t, reg, code, "Bob")
+	waitForRosterSize(t, reg, code, 1)
 }
 
 func TestHostDisconnectAutoMigratesAfterGrace(t *testing.T) {
 	srv, reg := newAppWithGrace(t, 80*time.Millisecond)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	_ = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
 
 	// Alice disconnects.
 	_ = alice.CloseNow()
 	// After ~80ms grace, Host should be Bob.
-	waitForHost(t, reg, canonicalJoinCode, "Bob")
+	waitForHost(t, reg, code, "Bob")
 }
 
 func TestHostReconnectWithinGraceCancelsMigration(t *testing.T) {
 	srv, reg := newAppWithGrace(t, 200*time.Millisecond)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	_ = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
 
 	_ = alice.CloseNow()
 	// Reconnect within grace.
 	time.Sleep(50 * time.Millisecond)
-	alice2, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice2, _ := dialAs(t, srv, code, "Alice")
 	if alice2 == nil {
 		t.Fatalf("Alice reconnect failed")
 	}
 	defer alice2.CloseNow()
 	// Wait past where grace would have fired.
 	time.Sleep(300 * time.Millisecond)
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	host := ""
 	for _, p := range session.Roster() {
 		if p.Host {
@@ -322,25 +322,25 @@ func TestHostReconnectWithinGraceCancelsMigration(t *testing.T) {
 
 func TestHostReconnectAfterGraceDoesNotReclaim(t *testing.T) {
 	srv, reg := newAppWithGrace(t, 60*time.Millisecond)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	_ = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
 
 	_ = alice.CloseNow()
-	waitForHost(t, reg, canonicalJoinCode, "Bob")
+	waitForHost(t, reg, code, "Bob")
 
 	// Alice comes back after migration: should NOT auto-reclaim.
-	alice2, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice2, _ := dialAs(t, srv, code, "Alice")
 	if alice2 == nil {
 		t.Fatalf("Alice reconnect failed")
 	}
 	defer alice2.CloseNow()
 	time.Sleep(50 * time.Millisecond)
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	host := ""
 	for _, p := range session.Roster() {
 		if p.Host {
@@ -354,12 +354,12 @@ func TestHostReconnectAfterGraceDoesNotReclaim(t *testing.T) {
 
 func TestHostChangeBroadcastsNotice(t *testing.T) {
 	srv, _ := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	_ = readRoster(t, alice)
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	_ = readUntil(t, bob, func(m rosterMsg) bool { return len(m.Players) == 2 })
 

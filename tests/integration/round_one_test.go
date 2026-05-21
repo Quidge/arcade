@@ -68,11 +68,11 @@ func drainRosterAndFinishRound0(t *testing.T, alice, bob *websocket.Conn, captio
 
 func TestRoundOneStartsImmediatelyAfterRoundZeroFinalizes(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 
 	t60 := 60
@@ -116,7 +116,7 @@ func TestRoundOneStartsImmediatelyAfterRoundZeroFinalizes(t *testing.T) {
 	}
 
 	// Verify session phase advanced.
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	st, roundNum := session.Phase()
 	if st != gamesession.StateRoundActive {
 		t.Errorf("phase = %v want StateRoundActive", st)
@@ -128,11 +128,11 @@ func TestRoundOneStartsImmediatelyAfterRoundZeroFinalizes(t *testing.T) {
 
 func TestRoundOneStrokesDraftStreamsAndAccumulates(t *testing.T) {
 	srv, _, webSrv := newAppWithServer(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 
 	t60 := 60
@@ -180,7 +180,7 @@ func TestRoundOneStrokesDraftStreamsAndAccumulates(t *testing.T) {
 	}
 	time.Sleep(20 * time.Millisecond)
 
-	cs := webSrv.ChainStoreForCode(canonicalJoinCode)
+	cs := webSrv.ChainStoreForCode(code)
 	// Alice's chain (index 0) holds: [alice's caption, bob's drawing]
 	chain0 := cs.Entries(0)
 	if len(chain0) != 2 {
@@ -204,10 +204,10 @@ func TestRoundOneSubmitSealsAndForceAdvanceAndAllSubmittedAndTimer(t *testing.T)
 	// All-submitted: both seats submit drawing → round 1 ends → reveal.
 	t.Run("all-submitted", func(t *testing.T) {
 		srv, reg := newApp(t)
-		canonicalJoinCode := createSession(t, srv)
-		alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+		code := createSession(t, srv)
+		alice, _ := dialAs(t, srv, code, "Alice")
 		defer alice.CloseNow()
-		bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+		bob, _ := dialAs(t, srv, code, "Bob")
 		defer bob.CloseNow()
 		t60 := 60
 		drainRosterAndFinishRound0(t, alice, bob, "alice's caption", "bob's caption", &t60)
@@ -220,7 +220,7 @@ func TestRoundOneSubmitSealsAndForceAdvanceAndAllSubmittedAndTimer(t *testing.T)
 		sendCmd(t, bob, map[string]any{"type": "submit"})
 		_ = readUntilType(t, alice, "round-ended")
 		time.Sleep(20 * time.Millisecond)
-		session, _ := reg.Lookup(canonicalJoinCode)
+		session, _ := reg.Lookup(code)
 		st, _ := session.Phase()
 		if st != gamesession.StateReveal {
 			t.Errorf("phase after all-submitted Round 1 = %v want StateReveal", st)
@@ -230,10 +230,10 @@ func TestRoundOneSubmitSealsAndForceAdvanceAndAllSubmittedAndTimer(t *testing.T)
 	// Force-advance: host ends Round 1 early.
 	t.Run("force-advance", func(t *testing.T) {
 		srv, reg := newApp(t)
-		canonicalJoinCode := createSession(t, srv)
-		alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+		code := createSession(t, srv)
+		alice, _ := dialAs(t, srv, code, "Alice")
 		defer alice.CloseNow()
-		bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+		bob, _ := dialAs(t, srv, code, "Bob")
 		defer bob.CloseNow()
 		t60 := 60
 		drainRosterAndFinishRound0(t, alice, bob, "alice's caption", "bob's caption", &t60)
@@ -242,7 +242,7 @@ func TestRoundOneSubmitSealsAndForceAdvanceAndAllSubmittedAndTimer(t *testing.T)
 		sendCmd(t, alice, map[string]any{"type": "advance"})
 		_ = readUntilType(t, alice, "round-ended")
 		time.Sleep(20 * time.Millisecond)
-		session, _ := reg.Lookup(canonicalJoinCode)
+		session, _ := reg.Lookup(code)
 		st, _ := session.Phase()
 		if st != gamesession.StateReveal {
 			t.Errorf("phase after force-advance Round 1 = %v want StateReveal", st)
@@ -252,10 +252,10 @@ func TestRoundOneSubmitSealsAndForceAdvanceAndAllSubmittedAndTimer(t *testing.T)
 	// Timer expiry: short timer; nobody submits; round 1 ends.
 	t.Run("timer-expiry", func(t *testing.T) {
 		srv, reg := newApp(t)
-		canonicalJoinCode := createSession(t, srv)
-		alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+		code := createSession(t, srv)
+		alice, _ := dialAs(t, srv, code, "Alice")
 		defer alice.CloseNow()
-		bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+		bob, _ := dialAs(t, srv, code, "Bob")
 		defer bob.CloseNow()
 		t1 := 1
 		drainRosterAndFinishRound0(t, alice, bob, "alice's caption", "bob's caption", &t1)
@@ -263,7 +263,7 @@ func TestRoundOneSubmitSealsAndForceAdvanceAndAllSubmittedAndTimer(t *testing.T)
 		_ = readUntilType(t, bob, "round-state")
 		_ = readUntilType(t, alice, "round-ended")
 		time.Sleep(50 * time.Millisecond)
-		session, _ := reg.Lookup(canonicalJoinCode)
+		session, _ := reg.Lookup(code)
 		st, _ := session.Phase()
 		if st != gamesession.StateReveal {
 			t.Errorf("phase after timer-expiry Round 1 = %v want StateReveal", st)
@@ -273,11 +273,11 @@ func TestRoundOneSubmitSealsAndForceAdvanceAndAllSubmittedAndTimer(t *testing.T)
 
 func TestRoundOneGhostFillProducesDrawing(t *testing.T) {
 	srv, _, webSrv := newAppWithServer(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 
 	t60 := 60
@@ -301,7 +301,7 @@ func TestRoundOneGhostFillProducesDrawing(t *testing.T) {
 		}
 	}
 	time.Sleep(20 * time.Millisecond)
-	cs := webSrv.ChainStoreForCode(canonicalJoinCode)
+	cs := webSrv.ChainStoreForCode(code)
 	chain0 := cs.Entries(0)
 	if !chain0[1].Ghost {
 		t.Errorf("chain 0 round-1 should be Ghost: %+v", chain0[1])
@@ -313,11 +313,11 @@ func TestRoundOneGhostFillProducesDrawing(t *testing.T) {
 
 func TestRoundOneReconnectMidRoundRestoresStrokes(t *testing.T) {
 	srv, _ := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 
 	t60 := 60
 	drainRosterAndFinishRound0(t, alice, bob, "alice's caption", "bob's caption", &t60)
@@ -329,7 +329,7 @@ func TestRoundOneReconnectMidRoundRestoresStrokes(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	_ = bob.CloseNow()
 
-	bob2, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob2, _ := dialAs(t, srv, code, "Bob")
 	defer bob2.CloseNow()
 	rsPayload := readUntilType(t, bob2, "round-state")
 	var rs roundStateDrawingMsg
@@ -346,11 +346,11 @@ func TestRoundOneReconnectMidRoundRestoresStrokes(t *testing.T) {
 
 func TestRoundOneInProgressStrokesArePrivate(t *testing.T) {
 	srv, _ := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 
 	t60 := 60

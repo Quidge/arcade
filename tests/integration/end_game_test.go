@@ -52,11 +52,11 @@ func waitForGameEnded(t *testing.T, c *websocket.Conn) gameEndedWire {
 
 func TestEndGameFromRoundActiveByHostBroadcastsAndClosesConnections(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 1)
 	drainToRosterSize(t, alice, 2)
@@ -71,7 +71,7 @@ func TestEndGameFromRoundActiveByHostBroadcastsAndClosesConnections(t *testing.T
 	waitForGameEnded(t, alice)
 	waitForGameEnded(t, bob)
 
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	st, _ := session.Phase()
 	if st != gamesession.StateEnded {
 		t.Errorf("phase after end-game = %v want StateEnded", st)
@@ -80,11 +80,11 @@ func TestEndGameFromRoundActiveByHostBroadcastsAndClosesConnections(t *testing.T
 
 func TestEndGameFromRevealByHostTearsDownCleanly(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 
 	drawIntoRoundOneAndEnd(t, srv, alice, bob)
@@ -95,7 +95,7 @@ func TestEndGameFromRevealByHostTearsDownCleanly(t *testing.T) {
 	waitForGameEnded(t, alice)
 	waitForGameEnded(t, bob)
 
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	st, _ := session.Phase()
 	if st != gamesession.StateEnded {
 		t.Errorf("phase = %v want StateEnded", st)
@@ -104,11 +104,11 @@ func TestEndGameFromRevealByHostTearsDownCleanly(t *testing.T) {
 
 func TestEndGameByNonHostIsRejected(t *testing.T) {
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
-	bob, _ := dialAs(t, srv, canonicalJoinCode, "Bob")
+	bob, _ := dialAs(t, srv, code, "Bob")
 	defer bob.CloseNow()
 	drainToRosterSize(t, alice, 1)
 	drainToRosterSize(t, alice, 2)
@@ -123,7 +123,7 @@ func TestEndGameByNonHostIsRejected(t *testing.T) {
 	sendCmd(t, bob, map[string]any{"type": "end-game"})
 	time.Sleep(150 * time.Millisecond)
 
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	st, _ := session.Phase()
 	if st == gamesession.StateEnded {
 		t.Errorf("non-Host end-game advanced phase to Ended")
@@ -149,16 +149,16 @@ func TestEndGameButtonAvailableFromLobbyOnward(t *testing.T) {
 	// per the issue the button is shown from Start onward, the
 	// server should accept end-game from any non-terminal state.
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
-	alice, _ := dialAs(t, srv, canonicalJoinCode, "Alice")
+	alice, _ := dialAs(t, srv, code, "Alice")
 	defer alice.CloseNow()
 	drainToRosterSize(t, alice, 1)
 
 	sendCmd(t, alice, map[string]any{"type": "end-game"})
 	waitForGameEnded(t, alice)
 
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	st, _ := session.Phase()
 	if st != gamesession.StateEnded {
 		t.Errorf("phase after lobby end-game = %v want StateEnded", st)

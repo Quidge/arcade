@@ -25,7 +25,7 @@ func TestFullGameAtMaxPlayers(t *testing.T) {
 	}
 
 	srv, reg := newApp(t)
-	canonicalJoinCode := createSession(t, srv)
+	code := createSession(t, srv)
 
 	// Dial 10 seats in join order. The first is the Host.
 	const N = 10
@@ -33,7 +33,7 @@ func TestFullGameAtMaxPlayers(t *testing.T) {
 	names := make([]string, N)
 	for i := 0; i < N; i++ {
 		names[i] = fmt.Sprintf("p%d", i)
-		c, _ := dialAs(t, srv, canonicalJoinCode, names[i])
+		c, _ := dialAs(t, srv, code, names[i])
 		if c == nil {
 			t.Fatalf("seat %d failed to connect", i)
 		}
@@ -93,7 +93,7 @@ func TestFullGameAtMaxPlayers(t *testing.T) {
 	}
 
 	// Confirm the session is actually in Reveal.
-	session, _ := reg.Lookup(canonicalJoinCode)
+	session, _ := reg.Lookup(code)
 	st, _ := session.Phase()
 	if st != gamesession.StateReveal {
 		t.Fatalf("phase after N=10 walk = %v want StateReveal", st)

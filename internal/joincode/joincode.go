@@ -8,14 +8,17 @@
 //
 //   - Canonical form — 6 characters, uppercase, no dash. The internal
 //     representation; used as the registry key, in storage, and
-//     anywhere a code is compared. Name variables canonicalJoinCode.
+//     anywhere a code is compared.
 //   - Display form — 7 characters, uppercase, dashed after char 3
-//     (e.g. ABC-123). The form shown to users. Name variables
-//     displayJoinCode.
+//     (e.g. ABC-123). The form shown to users.
 //
 // Convert with Parse (any input → canonical) and Format (canonical →
-// display). Unvalidated input — e.g. an HTTP path value — should be
-// named rawJoinCode until Parse has accepted it.
+// display). At API boundaries — parameters, struct fields, return
+// values — name canonical codes canonicalJoinCode, display codes
+// displayJoinCode, and unvalidated input (e.g. an HTTP path value)
+// rawJoinCode until Parse has accepted it. Local variables in tight
+// scopes may use shorter names when the form is unambiguous from
+// context.
 //
 // # Alphabet
 //
