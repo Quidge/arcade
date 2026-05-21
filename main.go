@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/quidge/scribble/internal/gamesession"
@@ -49,6 +50,10 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// Env-var convention: infrastructure knobs read by deploy tooling
+	// (ADDR, DATA_DIR) follow conventional unprefixed names; product-
+	// specific knobs (only consumed by this binary) are prefixed
+	// SCRIBBLE_*.
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = defaultAddr
@@ -62,7 +67,21 @@ func main() {
 	// established path convention without re-litigating it.
 	log.Printf("data dir %q (currently unused)", dataDir)
 
-	registry := gamesession.NewRegistry()
+	// SCRIBBLE_HOST_DISCONNECT_GRACE_SECONDS exists so the e2e test
+	// suite can shrink the 15-second host-migration grace down to 1s
+	// without faking the clock. Production sets nothing and gets the
+	// default. The integration tier reaches WithHostGraceDuration
+	// directly because it constructs the Registry itself; e2e drives
+	// a real binary so it needs the env-var seam.
+	graceDuration := gamesession.DefaultHostGraceDuration
+	if v := os.Getenv("SCRIBBLE_HOST_DISCONNECT_GRACE_SECONDS"); v != "" {
+		secs, err := strconv.Atoi(v)
+		if err != nil || secs <= 0 {
+			log.Fatalf("SCRIBBLE_HOST_DISCONNECT_GRACE_SECONDS must be a positive integer (seconds), got %q", v)
+		}
+		graceDuration = time.Duration(secs) * time.Second
+	}
+	registry := gamesession.NewRegistry(gamesession.WithHostGraceDuration(graceDuration))
 	srvWeb := web.New(registry, gitSHA)
 
 	mux := http.NewServeMux()

@@ -1,7 +1,10 @@
 # Scribble
 
 ## Common dev commands
-- `just web` to start the dev server; this command starts on a port dedicated to your branch or worktree, which will avoid collisions with other users developing on the same system
+- `just web` to start the dev server; this command starts on a port dedicated to your branch or worktree, which will avoid collisions with other users developing on the same system.
+- `just test-unit`, `just test-integration`, `just test-all` — the Go test tiers. `test-unit` is the default (untagged `go test ./...`); `test-integration` runs `tests/integration/` behind the `//go:build integration` tag; `test-all` runs both in sequence.
+- `just test-e2e` — the Playwright UI tier under `tests/e2e/` (TypeScript specs across chromium/firefox/webkit). Requires Node + pnpm; the recipe handles port assignment per branch via `wt step eval`. Not folded into `test-all`. See ADR 0012.
+- `just check` — fmt + lint + all Go test tiers + tidy. Does not run e2e.
 
 Run `just` (no arguments) to see other commands if needed.
 
