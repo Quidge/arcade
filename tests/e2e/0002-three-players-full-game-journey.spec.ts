@@ -6,14 +6,10 @@ import {
   test,
   expect,
   drawStroke,
+  submitCaption,
   submitDrawing,
 } from './helpers';
 import type { Page } from '@playwright/test';
-
-async function submitCaptionAt(page: Page, text: string) {
-  await page.locator('#round-input').fill(text);
-  await page.getByRole('button', { name: 'Submit', exact: true }).click();
-}
 
 test.describe('Scenario 0002 — full-game journey at N=3', () => {
   test('Three Players play through all Rounds, walk every Chain in Reveal, then Host ends the game', async ({ threePlayerLobby }) => {
@@ -30,9 +26,9 @@ test.describe('Scenario 0002 — full-game journey at N=3', () => {
     });
 
     await test.step('Round 0: each Player submits a starter Caption; all three move to Round 1 (drawing)', async () => {
-      await submitCaptionAt(alice.page, 'a wizard losing an argument with a goose');
-      await submitCaptionAt(bob.page, 'two squirrels reviewing a contract');
-      await submitCaptionAt(carol.page, 'three penguins waiting in line for an espresso');
+      await submitCaption(alice.page, 'a wizard losing an argument with a goose');
+      await submitCaption(bob.page, 'two squirrels reviewing a contract');
+      await submitCaption(carol.page, 'three penguins waiting in line for an espresso');
       for (const page of everyone) {
         await expect(page.locator('#round-draw-panel')).toBeVisible();
       }
@@ -51,9 +47,9 @@ test.describe('Scenario 0002 — full-game journey at N=3', () => {
     });
 
     await test.step('Round 2: each Player submits a guess Caption; all three transition to Reveal', async () => {
-      await submitCaptionAt(alice.page, 'the goose is winning');
-      await submitCaptionAt(bob.page, 'two woodland creatures sign paperwork');
-      await submitCaptionAt(carol.page, 'a tidy queue of small birds');
+      await submitCaption(alice.page, 'the goose is winning');
+      await submitCaption(bob.page, 'two woodland creatures sign paperwork');
+      await submitCaption(carol.page, 'a tidy queue of small birds');
       for (const page of everyone) {
         await expect(page.locator('#reveal-panel')).toBeVisible();
       }
