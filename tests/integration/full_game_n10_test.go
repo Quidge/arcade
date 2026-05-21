@@ -80,10 +80,16 @@ func TestFullGameAtMaxPlayers(t *testing.T) {
 		}
 	}
 
-	// After Round N-1 ends, the room transitions to Reveal. Every
-	// seat sees a reveal-state.
-	for _, c := range conns {
+	// After Round N-1 ends, the room transitions to Reveal. Capture
+	// the initial reveal-state from conns[0] (so we know who's
+	// driving) and drain the same broadcast off the other conns.
+	rawInitial := readUntilType(t, conns[0], "reveal-state")
+	for _, c := range conns[1:] {
 		_ = readUntilType(t, c, "reveal-state")
+	}
+	var current revealStateWire
+	if err := json.Unmarshal(rawInitial, &current); err != nil {
+		t.Fatalf("initial reveal-state unmarshal: %v", err)
 	}
 
 	// Confirm the session is actually in Reveal.
@@ -99,7 +105,6 @@ func TestFullGameAtMaxPlayers(t *testing.T) {
 	// (N-1) step→step advances plus one step→full. Then a
 	// full→step(next) advance transitions to Chain k+1; on the
 	// final Chain, that last advance lands in mode="complete".
-	current := readCurrentRevealState(t, conns)
 	for chainIdx := 0; chainIdx < N; chainIdx++ {
 		if current.ChainIndex != chainIdx {
 			t.Fatalf("expected chain %d, reveal-state says %d", chainIdx, current.ChainIndex)
@@ -136,47 +141,27 @@ func TestFullGameAtMaxPlayers(t *testing.T) {
 	}
 }
 
-// readCurrentRevealState reads the most recent reveal-state from
-// conns[0] without sending anything. Used to bootstrap revealAdvance
-// at the start of the walk.
-func readCurrentRevealState(t *testing.T, conns []*websocket.Conn) revealStateWire {
-	t.Helper()
-	// At call time the broadcast from the round → reveal transition
-	// has already been drained by the caller. We send a draft-style
-	// no-op? Better: peek at the session's reveal state by reading
-	// the unicast reveal-state delivered to a newly-arrived seat is
-	// noisy here. Instead, drive the first chain's starter to
-	// advance once and accept that the very first advance moves
-	// entries_visible from 1 to 2. To stay simple, this helper
-	// piggybacks on the initial reveal-state by re-reading it from
-	// a connection that hasn't drained yet — but the caller already
-	// drained all. So we reconstruct the initial state synthetically.
-	return revealStateWire{ChainIndex: 0, Mode: "step"}
-}
-
-// revealAdvance sends an advance from the named driver in the
-// current reveal-state, then reads the resulting broadcast on every
-// seat. Returns the new state. If the current driver is unknown
-// (the synthetic initial state in readCurrentRevealState), the
-// helper falls back to trying every connection in order; only the
-// real driver's advance produces a broadcast.
+// revealAdvance sends a reveal-advance from current.Driver and reads
+// the resulting broadcast on every seat. Returns the new state. The
+// caller is responsible for keeping `current` fresh: the initial
+// state is the in-flight reveal-state captured at the round-→-reveal
+// transition, and every subsequent advance returns the next.
 func revealAdvance(t *testing.T, conns []*websocket.Conn, names []string, current revealStateWire) revealStateWire {
 	t.Helper()
-	if current.Driver != "" {
-		// Specific driver known: send from just that conn.
-		for i, n := range names {
-			if n == current.Driver {
-				sendCmd(t, conns[i], map[string]any{"type": "reveal-advance"})
-				break
-			}
-		}
-	} else {
-		// Driver unknown: try every conn. The server accepts only
-		// the legitimate driver's command; the rest are no-ops.
-		for _, c := range conns {
-			sendCmd(t, c, map[string]any{"type": "reveal-advance"})
+	if current.Driver == "" {
+		t.Fatalf("revealAdvance called with empty Driver on state %+v", current)
+	}
+	var driverConn *websocket.Conn
+	for i, n := range names {
+		if n == current.Driver {
+			driverConn = conns[i]
+			break
 		}
 	}
+	if driverConn == nil {
+		t.Fatalf("no conn for driver %q (names=%v)", current.Driver, names)
+	}
+	sendCmd(t, driverConn, map[string]any{"type": "reveal-advance"})
 	raw := readUntilType(t, conns[0], "reveal-state")
 	for _, c := range conns[1:] {
 		_ = readUntilType(t, c, "reveal-state")
