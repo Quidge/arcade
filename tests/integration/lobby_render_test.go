@@ -156,6 +156,29 @@ func TestLobbyHEADReturns404ForMalformedCode(t *testing.T) {
 	}
 }
 
+// TestLobbyHEADReturns404ForOffAlphabetCode covers the alphabet-
+// rejection branch of joincode.Parse under HEAD. The previous
+// malformed-code test only exercises the length-fail path; this
+// one uses a 6-char string containing every excluded letter
+// (I, L, O, U) so the regex/alphabet guard on the home form's
+// pattern attribute has a matching server-side check.
+func TestLobbyHEADReturns404ForOffAlphabetCode(t *testing.T) {
+	srv, _ := newApp(t)
+
+	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/XILOU0", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("HEAD off-alphabet code status = %d want 404", resp.StatusCode)
+	}
+}
+
 func TestLobbyHEADIsCaseAndDashTolerant(t *testing.T) {
 	srv, _ := newApp(t)
 	code := createSession(t, srv)

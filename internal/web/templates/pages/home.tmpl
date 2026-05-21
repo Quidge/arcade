@@ -28,6 +28,7 @@
 		border-radius: 0.4rem;
 		font-size: 0.95rem;
 	}
+	.hidden { display: none !important; }
 	#join-form .field-row { margin-top: 0.25rem; }
 	#join-code {
 		text-transform: uppercase;
@@ -42,7 +43,7 @@
 <section class="home-section" aria-labelledby="join-heading">
 	<h2 id="join-heading">Join a game</h2>
 	<form id="join-form" novalidate>
-		<div id="join-error" hidden role="alert"></div>
+		<div id="join-error" class="hidden" role="alert"></div>
 		<label for="join-code">Game code</label>
 		<div class="field-row">
 			<input
@@ -95,16 +96,16 @@
 	}
 	function showError(msg) {
 		err.textContent = msg;
-		err.hidden = false;
+		err.classList.remove('hidden');
 	}
 	function clearError() {
-		err.hidden = true;
+		err.classList.add('hidden');
 		err.textContent = '';
 	}
 
 	input.addEventListener('input', function () {
 		btn.disabled = !shapeOK(input.value);
-		if (!err.hidden) clearError();
+		if (!err.classList.contains('hidden')) clearError();
 	});
 
 	form.addEventListener('submit', function (ev) {
