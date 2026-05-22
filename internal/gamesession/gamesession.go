@@ -332,6 +332,30 @@ func (g *GameSession) HasSeat(name string) bool {
 	return ok
 }
 
+// Host returns the display name of the seat that currently holds
+// the Host badge, or "" if no seat does (an empty GameSession, or
+// the brief window during a lobby Leave by the last Player). The
+// web layer uses this for the Host-only authorization checks; it
+// is the public face of the same rule the phase verbs apply
+// internally via currentHostLocked.
+func (g *GameSession) Host() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.currentHostLocked()
+}
+
+// Connected reports whether the named seat currently has a live
+// WebSocket bound to it. An unknown seat returns false. Connection
+// status is a separate concern from seat membership (see ADR 0008);
+// callers asking "is this Player reachable right now" want this,
+// not HasSeat.
+func (g *GameSession) Connected(name string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	p, ok := g.players[name]
+	return ok && p.Connected
+}
+
 func (g *GameSession) rosterLocked() []Player {
 	out := make([]Player, 0, len(g.order))
 	for _, name := range g.order {

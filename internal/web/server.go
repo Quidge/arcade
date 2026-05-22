@@ -547,7 +547,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		// Only the current Host may kick. Re-check inside the
 		// switch in case the badge moved between the client
 		// rendering the button and the message arriving.
-		if currentHost(session) != selfName {
+		if session.Host() != selfName {
 			return
 		}
 		if err := session.Leave(target); err != nil {
@@ -564,7 +564,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		// to Disconnect (ADR 0009) and there is no seat removal —
 		// we still close the leaver's own WS so their tab returns
 		// to name entry.
-		wasHost := currentHost(session) == selfName
+		wasHost := session.Host() == selfName
 		if err := session.Leave(selfName); err != nil {
 			log.Printf("leave %s: %v", selfName, err)
 			return
@@ -574,7 +574,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 			broadcastNotice(b, fmt.Sprintf("%s left the game", selfName))
 		}
 	case "timer":
-		if currentHost(session) != selfName {
+		if session.Host() != selfName {
 			return
 		}
 		st, _ := session.Phase()
@@ -589,7 +589,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		room.pendingTimerSeconds = secs
 		room.mu.Unlock()
 	case "start":
-		if currentHost(session) != selfName {
+		if session.Host() != selfName {
 			return
 		}
 		if err := session.Start(selfName); err != nil {
@@ -643,7 +643,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 			log.Printf("submit by %s: %v", selfName, err)
 		}
 	case "advance":
-		if currentHost(session) != selfName {
+		if session.Host() != selfName {
 			return
 		}
 		if err := room.controller.ForceAdvance(); err != nil {
@@ -666,7 +666,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 		room.revealCursor.Advance()
 		s.broadcastRevealState(session, room)
 	case "end-game":
-		if currentHost(session) != selfName {
+		if session.Host() != selfName {
 			return
 		}
 		st, _ := session.Phase()
@@ -690,7 +690,7 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 }
 
 // Reveal pacing currently lives across this cluster of free
-// functions (canAdvanceReveal / seatConnected / driverFor) plus
+// functions (canAdvanceReveal / driverFor) plus
 // buildRevealStateMsg below and the revealCursor primitive in
 // reveal_cursor.go. We considered lifting them into a single deep
 // Reveal module that owns the cursor, driver re-evaluation, and
@@ -708,30 +708,19 @@ func (s *Server) handleCommand(session *gamesession.GameSession, room *roomState
 // starter who Reconnects mid-reveal-of-their-own-Chain regains the
 // driver role on the next attempted advance.
 func canAdvanceReveal(actor, starter string, session *gamesession.GameSession) bool {
-	if seatConnected(session, starter) {
+	if session.Connected(starter) {
 		return actor == starter
 	}
-	return actor == currentHost(session)
-}
-
-// seatConnected reports whether the named seat is currently
-// connected. An unknown seat returns false.
-func seatConnected(session *gamesession.GameSession, name string) bool {
-	for _, p := range session.Roster() {
-		if p.Name == name {
-			return p.Connected
-		}
-	}
-	return false
+	return actor == session.Host()
 }
 
 // driverFor returns the display name of the current driver for the
 // Chain whose starter is named, computed at call time per ADR 0011.
 func driverFor(session *gamesession.GameSession, starter string) string {
-	if seatConnected(session, starter) {
+	if session.Connected(starter) {
 		return starter
 	}
-	return currentHost(session)
+	return session.Host()
 }
 
 // startRound kicks off the Round controller for roundNum and
@@ -865,7 +854,7 @@ func (s *Server) onRoundEnd(session *gamesession.GameSession, room *roomState, r
 	// The chain.Store roster is N seats, and the GameSession runs N
 	// Rounds (one Entry per seat per Chain).
 	n := room.chains.N()
-	host := currentHost(session)
+	host := session.Host()
 	if roundNum+1 < n {
 		if err := session.BeginRound(host, roundNum+1); err != nil {
 			log.Printf("BeginRound %d by %s: %v", roundNum+1, host, err)
@@ -1078,17 +1067,6 @@ func (s *Server) writePhaseSnapshot(conn *websocket.Conn, session *gamesession.G
 		return nil
 	}
 	return nil
-}
-
-// currentHost returns the display name of the seat that currently
-// holds the Host badge in session, or "" if none.
-func currentHost(session *gamesession.GameSession) string {
-	for _, p := range session.Roster() {
-		if p.Host {
-			return p.Name
-		}
-	}
-	return ""
 }
 
 func broadcastNotice(b *presence.Broadcaster, text string) {

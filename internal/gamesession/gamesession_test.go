@@ -1198,3 +1198,58 @@ func TestLeavePostStartByHostStartsGrace(t *testing.T) {
 		}
 	})
 }
+
+func TestHostReturnsEmptyForEmptySession(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	if got := g.Host(); got != "" {
+		t.Errorf("Host on empty GameSession = %q want \"\"", got)
+	}
+}
+
+func TestHostReturnsCurrentBadgeHolder(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	// First seat to Join holds the Host badge.
+	if got := g.Host(); got != "Alice" {
+		t.Errorf("Host after seed = %q want Alice", got)
+	}
+	if err := g.TransferHost("Alice", "Bob"); err != nil {
+		t.Fatalf("TransferHost: %v", err)
+	}
+	if got := g.Host(); got != "Bob" {
+		t.Errorf("Host after transfer = %q want Bob", got)
+	}
+}
+
+func TestConnectedReflectsLiveConnection(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	seedPlayers(t, g, "Alice", "Bob")
+	if !g.Connected("Alice") {
+		t.Errorf("Connected(Alice) after Join = false, want true")
+	}
+	g.Disconnect("Alice")
+	if g.Connected("Alice") {
+		t.Errorf("Connected(Alice) after Disconnect = true, want false")
+	}
+	// The seat persists; Connected is a separate concern from membership.
+	if !g.HasSeat("Alice") {
+		t.Errorf("HasSeat(Alice) after Disconnect = false, want true")
+	}
+	if _, err := g.Reconnect("Alice"); err != nil {
+		t.Fatalf("Reconnect Alice: %v", err)
+	}
+	if !g.Connected("Alice") {
+		t.Errorf("Connected(Alice) after Reconnect = false, want true")
+	}
+}
+
+func TestConnectedUnknownSeatIsFalse(t *testing.T) {
+	r := NewRegistry()
+	g := r.Create()
+	if g.Connected("Nobody") {
+		t.Errorf("Connected on unknown seat = true, want false")
+	}
+}
