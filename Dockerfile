@@ -8,13 +8,13 @@ ARG BUILT_AT
 ARG TARGETOS
 ARG TARGETARCH
 
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
 
 COPY main.go ./
-COPY templates ./templates
+COPY internal ./internal
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
@@ -22,11 +22,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build \
         -trimpath \
         -ldflags="-s -w -X main.gitSHA=${GIT_SHA} -X main.builtAt=${BUILT_AT}" \
-        -o /out/scribble \
+        -o /out/arcade \
         .
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
-COPY --from=builder /out/scribble /scribble
+COPY --from=builder /out/arcade /arcade
 USER nonroot:nonroot
 EXPOSE 8080
-ENTRYPOINT ["/scribble"]
+ENTRYPOINT ["/arcade"]

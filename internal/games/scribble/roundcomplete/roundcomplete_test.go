@@ -3,10 +3,10 @@ package roundcomplete
 import (
 	"testing"
 
-	"github.com/quidge/scribble/internal/games/scribble/chain"
-	"github.com/quidge/scribble/internal/games/scribble/draft"
-	"github.com/quidge/scribble/internal/games/scribble/ghost"
-	"github.com/quidge/scribble/internal/games/scribble/strokes"
+	"github.com/quidge/arcade/internal/games/scribble/chain"
+	"github.com/quidge/arcade/internal/games/scribble/draft"
+	"github.com/quidge/arcade/internal/games/scribble/ghost"
+	"github.com/quidge/arcade/internal/games/scribble/strokes"
 )
 
 func TestContentKindForRound(t *testing.T) {

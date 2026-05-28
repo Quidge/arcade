@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/quidge/scribble/internal/games/scribble/strokes"
+	"github.com/quidge/arcade/internal/games/scribble/strokes"
 )
 
 func TestInitCreatesOneChainPerSeat(t *testing.T) {

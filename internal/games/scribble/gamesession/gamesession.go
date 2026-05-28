@@ -26,8 +26,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/quidge/scribble/internal/games/scribble/hostpromote"
-	"github.com/quidge/scribble/internal/joincode"
+	"github.com/quidge/arcade/internal/games/scribble/hostpromote"
+	"github.com/quidge/arcade/internal/joincode"
 )
 
 // MaxPlayers is the hard cap on Players per GameSession. The cap

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/quidge/scribble/internal/joincode"
+	"github.com/quidge/arcade/internal/joincode"
 )
 
 // Behaviors moved here from e2e per ADR 0013: rendered-HTML

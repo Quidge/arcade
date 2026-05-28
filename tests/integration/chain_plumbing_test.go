@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quidge/scribble/internal/arcade"
-	"github.com/quidge/scribble/internal/games/scribble/chain"
-	"github.com/quidge/scribble/internal/games/scribble/gamesession"
-	"github.com/quidge/scribble/internal/games/scribble/web"
+	"github.com/quidge/arcade/internal/arcade"
+	"github.com/quidge/arcade/internal/games/scribble/chain"
+	"github.com/quidge/arcade/internal/games/scribble/gamesession"
+	"github.com/quidge/arcade/internal/games/scribble/web"
 )
 
 // newAppWithServer mirrors newApp but also returns the *web.Server

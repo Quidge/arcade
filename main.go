@@ -1,4 +1,4 @@
-// Command scribble serves the scribble web app.
+// Command arcade serves the Arcade web app.
 package main
 
 import (
@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/quidge/scribble/internal/arcade"
-	"github.com/quidge/scribble/internal/games/scribble/gamesession"
-	scribbleweb "github.com/quidge/scribble/internal/games/scribble/web"
+	"github.com/quidge/arcade/internal/arcade"
+	"github.com/quidge/arcade/internal/games/scribble/gamesession"
+	scribbleweb "github.com/quidge/arcade/internal/games/scribble/web"
 )
 
 // scribbleBasePath is the URL slug Scribble is mounted under. main.go

@@ -17,10 +17,10 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/quidge/scribble/internal/arcade"
-	"github.com/quidge/scribble/internal/games/scribble/gamesession"
-	"github.com/quidge/scribble/internal/games/scribble/web"
-	"github.com/quidge/scribble/internal/joincode"
+	"github.com/quidge/arcade/internal/arcade"
+	"github.com/quidge/arcade/internal/games/scribble/gamesession"
+	"github.com/quidge/arcade/internal/games/scribble/web"
+	"github.com/quidge/arcade/internal/joincode"
 )
 
 // scribbleBase is the URL slug Scribble is mounted under in the

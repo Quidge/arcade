@@ -18,7 +18,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/quidge/scribble/internal/games/scribble/strokes"
+	"github.com/quidge/arcade/internal/games/scribble/strokes"
 )
 
 // EntryKind discriminates the tagged union over Entry content.

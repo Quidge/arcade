@@ -24,16 +24,16 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/quidge/scribble/internal/games/scribble/chain"
-	"github.com/quidge/scribble/internal/games/scribble/draft"
-	"github.com/quidge/scribble/internal/games/scribble/gamesession"
-	"github.com/quidge/scribble/internal/games/scribble/ghost"
-	"github.com/quidge/scribble/internal/games/scribble/presence"
-	"github.com/quidge/scribble/internal/games/scribble/round"
-	"github.com/quidge/scribble/internal/games/scribble/roundcomplete"
-	"github.com/quidge/scribble/internal/games/scribble/seatconn"
-	"github.com/quidge/scribble/internal/games/scribble/strokes"
-	"github.com/quidge/scribble/internal/joincode"
+	"github.com/quidge/arcade/internal/games/scribble/chain"
+	"github.com/quidge/arcade/internal/games/scribble/draft"
+	"github.com/quidge/arcade/internal/games/scribble/gamesession"
+	"github.com/quidge/arcade/internal/games/scribble/ghost"
+	"github.com/quidge/arcade/internal/games/scribble/presence"
+	"github.com/quidge/arcade/internal/games/scribble/round"
+	"github.com/quidge/arcade/internal/games/scribble/roundcomplete"
+	"github.com/quidge/arcade/internal/games/scribble/seatconn"
+	"github.com/quidge/arcade/internal/games/scribble/strokes"
+	"github.com/quidge/arcade/internal/joincode"
 )
 
 const (

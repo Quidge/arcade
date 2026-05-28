@@ -67,10 +67,10 @@ demo exercises real viewport sizes.
 just web        # run in the background — it stays up for the whole session
 ```
 
-Find the port it bound (the scribble process, not other listeners):
+Find the port it bound (the arcade process, not other listeners):
 
 ```bash
-lsof -nP -iTCP -sTCP:LISTEN | grep -i scribble
+lsof -nP -iTCP -sTCP:LISTEN | grep -i arcade
 ```
 
 Find the machine's LAN IP (try `en0` then `en1`):

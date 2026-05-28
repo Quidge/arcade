@@ -2,4 +2,4 @@
 !main.go
 !go.mod
 !go.sum
-!templates
+!internal
