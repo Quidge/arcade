@@ -1,5 +1,10 @@
 # Homepage offers join-by-code; HEAD-probes the existing lobby URL
 
+> **Superseded by [ADR 0015](0015-arcade-pivot.md).** Join-by-code moves off the
+> Arcade root onto each Game's own page; the root becomes a pure game-picker with
+> no bare-code box, since per-Game-namespaced codes leave nothing global for a
+> root code box to resolve against.
+
 The homepage gains a code input alongside the existing "Host a new game" button.
 On submit, JS issues `fetch('/g/<code>', {method: 'HEAD'})`: 200 redirects to the
 lobby, 404 surfaces "No game with that code" inline above the input. Display-name

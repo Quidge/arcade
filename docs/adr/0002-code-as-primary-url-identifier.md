@@ -1,5 +1,13 @@
 # Code-as-primary URL identifier; Crockford Base32 join codes
 
+> **Superseded in part by [ADR 0015](0015-arcade-pivot.md).** The
+> URL/identifier stance below — the URL deliberately not encoding the game type,
+> and the code being the global primary identifier the server looks up to
+> discover the game type — is reversed: the slug now encodes the Game
+> (`/scribble/g/<code>`) and codes are namespaced per Game. The Crockford Base32
+> code-format decision (6 chars, dash for readability, no I/L/O/U) is unchanged
+> and still governs.
+
 GameSession URLs are `/g/<code>` where `<code>` is a 6-character Crockford Base32 code with a dash in the middle for readability (e.g. `/g/A4B-K9P`). The URL deliberately does *not* encode the game type — when Scribble grows from one game (the Telestrations clone) to a small suite, the code remains the primary identifier and the server discovers the game type by looking up the code. Game-type-specific non-session paths (e.g. "start a new X") will live under separate hierarchies where the type is genuinely primary, not under `/g/`.
 
 Crockford Base32 is chosen for human readability — no I/L/O/U in the alphabet, case-insensitive input, dashes ignored on input — which makes codes easy to read aloud across a dinner table and type on a phone.
