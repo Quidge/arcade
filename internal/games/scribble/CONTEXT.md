@@ -79,7 +79,7 @@ The Host ends the current Round early, before all seats have submitted and befor
 The driver of the current Chain (its starter, or the Host as fallback when the starter is absent) advances the Reveal one step — revealing the next Entry, or transitioning from step-mode to whole-Chain view, or moving on to the next Chain. The driver is re-evaluated per advance against current connection state, so reconnect-mid-Reveal-of-one's-own-Chain restores the starter as driver. Only meaningful during the Reveal phase.
 
 **End game**:
-The Host explicitly ends the GameSession, terminating the room. Available to the Host at any time, regardless of phase. Closes all WebSockets cleanly and removes the GameSession from the registry; clients receive a "game ended" signal and render a thanks-for-playing landing. The only way out of a GameSession that has Started.
+The Host explicitly ends the GameSession, tearing it down. Available to the Host at any time, regardless of phase. Closes all WebSockets cleanly and removes the GameSession from the registry; clients receive a "game ended" signal and render a thanks-for-playing landing. The only way out of a GameSession that has Started.
 
 ## Relationships
 
@@ -93,7 +93,7 @@ The Host explicitly ends the GameSession, terminating the room. Available to the
 ## Example dialogue
 
 > **Dev:** "If a **Player** disconnects mid-Round, what happens to the **Entry** they were working on?"
-> **Domain expert:** "The Player's **Draft** is held server-side, so if they typed or drew anything at all before disconnecting, that gets shipped as their **Entry** at Round-end. If they contributed nothing, their **Ghost** fills the slot — visibly labeled, so the room knows it wasn't them."
+> **Domain expert:** "The Player's **Draft** is held server-side, so if they typed or drew anything at all before disconnecting, that gets shipped as their **Entry** at Round-end. If they contributed nothing, their **Ghost** fills the slot — visibly labeled, so the group knows it wasn't them."
 
 > **Dev:** "When the **GameSession** ends, do we show all the **Chains** at once?"
 > **Domain expert:** "No — each **Chain** belongs to its starter, and the delight is each starter walking the group through what happened to *their* Chain. The **Reveal** is per-Chain, in join order."
