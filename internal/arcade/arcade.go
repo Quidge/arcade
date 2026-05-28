@@ -17,15 +17,28 @@ import (
 //go:embed templates
 var templatesFS embed.FS
 
+// MountedGame is the picker's view of one Game mounted in the Arcade:
+// the base path it lives under and the name shown in the picker.
+// main.go owns the slugs (ADR 0015) and supplies these, so the slug
+// has a single source of truth rather than being duplicated between
+// main.go's mount and the picker template.
+type MountedGame struct {
+	Slug  string // base path, e.g. "/scribble"
+	Title string // display name shown in the picker, e.g. "Scribble"
+}
+
 // Server renders the Arcade picker and 404. Construct via New.
 type Server struct {
+	games  []MountedGame
 	picker *template.Template
 	nf     *template.Template
 }
 
-// New constructs the Arcade shell.
-func New() *Server {
+// New constructs the Arcade shell. games is what main.go has mounted,
+// in the order the picker should list them.
+func New(games []MountedGame) *Server {
 	return &Server{
+		games:  games,
 		picker: parseTmpl("templates/picker.tmpl"),
 		nf:     parseTmpl("templates/not_found.tmpl"),
 	}
@@ -39,10 +52,12 @@ func parseTmpl(page string) *template.Template {
 }
 
 // Routes registers the Arcade shell's routes on mux. The picker is
-// served at the exact root ("/{$}"); any other root-level path that
-// no Game claims falls through to the catch-all "/" and renders the
-// Arcade 404. Game routes registered under their own slugs are more
-// specific and win over the catch-all per net/http precedence.
+// served at the exact root ("/{$}"); any other path that no Game
+// claims — including a path beneath a Game's slug that the Game
+// doesn't route (e.g. "/scribble/typo") — falls through to the
+// catch-all "/" and renders the Arcade 404, not the Game's own.
+// Game routes registered under their own slugs are more specific and
+// win over the catch-all per net/http precedence.
 func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.handlePicker)
 	mux.HandleFunc("GET /", s.handleNotFound)
@@ -52,8 +67,16 @@ type baseData struct {
 	Title string
 }
 
+type pickerData struct {
+	baseData
+	Games []MountedGame
+}
+
 func (s *Server) handlePicker(w http.ResponseWriter, r *http.Request) {
-	render(w, s.picker, "base.tmpl", http.StatusOK, baseData{Title: "Arcade"})
+	render(w, s.picker, "base.tmpl", http.StatusOK, pickerData{
+		baseData: baseData{Title: "Arcade"},
+		Games:    s.games,
+	})
 }
 
 func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {

@@ -29,6 +29,10 @@ import (
 // are built from this constant throughout the tier.
 const scribbleBase = "/scribble"
 
+// scribbleMount is the picker entry main.go registers for Scribble;
+// tests reuse it so the Arcade shell lists the Game at its slug.
+var scribbleMount = []arcade.MountedGame{{Slug: scribbleBase, Title: "Scribble"}}
+
 // rosterMsg mirrors the wire-format envelope so this test can
 // assert on the JSON without depending on internal/web's private
 // types. The Connected field exercises the wire-format contract
@@ -48,7 +52,7 @@ func newApp(t *testing.T) (*httptest.Server, *gamesession.Registry) {
 	reg := gamesession.NewRegistry()
 	srvWeb := web.New(reg, "test", scribbleBase)
 	mux := http.NewServeMux()
-	arcade.New().Routes(mux)
+	arcade.New(scribbleMount).Routes(mux)
 	srvWeb.Routes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

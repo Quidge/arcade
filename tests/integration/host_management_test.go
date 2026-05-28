@@ -26,7 +26,7 @@ func newAppWithGrace(t *testing.T, grace time.Duration) (*httptest.Server, *game
 	reg := gamesession.NewRegistry(gamesession.WithHostGraceDuration(grace))
 	srvWeb := web.New(reg, "test", scribbleBase)
 	mux := http.NewServeMux()
-	arcade.New().Routes(mux)
+	arcade.New(scribbleMount).Routes(mux)
 	srvWeb.Routes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

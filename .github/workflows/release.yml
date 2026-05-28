@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://scribble.homeworld.jonathandemirgian.com
+      url: https://arcade.homeworld.jonathandemirgian.com
     steps:
       - name: Resolve target SHA
         id: resolve

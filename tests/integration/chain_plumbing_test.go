@@ -22,7 +22,7 @@ func newAppWithServer(t *testing.T) (*httptest.Server, *gamesession.Registry, *w
 	reg := gamesession.NewRegistry()
 	srvWeb := web.New(reg, "test", scribbleBase)
 	mux := http.NewServeMux()
-	arcade.New().Routes(mux)
+	arcade.New(scribbleMount).Routes(mux)
 	srvWeb.Routes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

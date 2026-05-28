@@ -93,7 +93,9 @@ func main() {
 	// owns the root picker. Register the Arcade at "/" and Scribble
 	// under its slug; /healthz stays unprefixed (infra knob).
 	scribbleGame := scribbleweb.New(registry, gitSHA, scribbleBasePath)
-	arcadeShell := arcade.New()
+	arcadeShell := arcade.New([]arcade.MountedGame{
+		{Slug: scribbleBasePath, Title: "Scribble"},
+	})
 
 	mux := http.NewServeMux()
 	arcadeShell.Routes(mux)

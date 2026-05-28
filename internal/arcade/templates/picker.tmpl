@@ -2,6 +2,6 @@
 <h1>Arcade</h1>
 <p class="lede">Pick a game to play.</p>
 <ul class="game-list">
-	<li><a class="game-link" href="/scribble/">Scribble</a></li>
-</ul>
+	{{range .Games}}<li><a class="game-link" href="{{.Slug}}/">{{.Title}}</a></li>
+	{{end}}</ul>
 {{end}}
