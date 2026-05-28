@@ -81,6 +81,26 @@ func TestArcadeRootServesPicker(t *testing.T) {
 	}
 }
 
+// TestBareSlugRedirectsToHome asserts the bare Game slug ("/scribble")
+// permanently redirects to its trailing-slash home ("/scribble/") —
+// the form the {base}/{$} route matches. Go's ServeMux does not do
+// this redirect for us (per the web package's Routes comment).
+func TestBareSlugRedirectsToHome(t *testing.T) {
+	srv, _ := newApp(t)
+
+	resp, err := httpClient().Get(srv.URL + scribbleBase)
+	if err != nil {
+		t.Fatalf("GET %s: %v", scribbleBase, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMovedPermanently {
+		t.Fatalf("GET %s status = %d want 301", scribbleBase, resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != scribbleBase+"/" {
+		t.Errorf("Location = %q want %q", loc, scribbleBase+"/")
+	}
+}
+
 func TestHomeHTMLContainsHostFormAndJoinForm(t *testing.T) {
 	srv, _ := newApp(t)
 
