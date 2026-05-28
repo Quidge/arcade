@@ -20,7 +20,7 @@ Canonical defaults (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 ### Domain docs
 
-Single-context — `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Multi-context — distributed glossaries (root `CONTEXT.md` for Arcade-wide terms, one per Game e.g. `internal/games/scribble/CONTEXT.md`), indexed by `CONTEXT-MAP.md`; centralized `docs/adr/` with one global number sequence. See `docs/agents/domain.md`.
 
 ### Dependency policy
 
