@@ -17,10 +17,17 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/quidge/scribble/internal/gamesession"
+	"github.com/quidge/scribble/internal/arcade"
+	"github.com/quidge/scribble/internal/games/scribble/gamesession"
+	"github.com/quidge/scribble/internal/games/scribble/web"
 	"github.com/quidge/scribble/internal/joincode"
-	"github.com/quidge/scribble/internal/web"
 )
+
+// scribbleBase is the URL slug Scribble is mounted under in the
+// integration harness — the real prefix main.go uses (ADR 0015), so
+// the prefix behavior is actually exercised. Routes and request URLs
+// are built from this constant throughout the tier.
+const scribbleBase = "/scribble"
 
 // rosterMsg mirrors the wire-format envelope so this test can
 // assert on the JSON without depending on internal/web's private
@@ -39,8 +46,9 @@ type rosterMsg struct {
 func newApp(t *testing.T) (*httptest.Server, *gamesession.Registry) {
 	t.Helper()
 	reg := gamesession.NewRegistry()
-	srvWeb := web.New(reg, "test")
+	srvWeb := web.New(reg, "test", scribbleBase)
 	mux := http.NewServeMux()
+	arcade.New().Routes(mux)
 	srvWeb.Routes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -60,16 +68,16 @@ func httpClient() *http.Client {
 // the Location header.
 func createSession(t *testing.T, srv *httptest.Server) string {
 	t.Helper()
-	resp, err := httpClient().Post(srv.URL+"/g", "application/x-www-form-urlencoded", nil)
+	resp, err := httpClient().Post(srv.URL+scribbleBase+"/g", "application/x-www-form-urlencoded", nil)
 	if err != nil {
-		t.Fatalf("POST /g: %v", err)
+		t.Fatalf("POST %s/g: %v", scribbleBase, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("POST /g status = %d want 303", resp.StatusCode)
+		t.Fatalf("POST %s/g status = %d want 303", scribbleBase, resp.StatusCode)
 	}
 	loc := resp.Header.Get("Location")
-	const prefix = "/g/"
+	const prefix = scribbleBase + "/g/"
 	if !strings.HasPrefix(loc, prefix) {
 		t.Fatalf("Location = %q", loc)
 	}
@@ -82,7 +90,7 @@ func createSession(t *testing.T, srv *httptest.Server) string {
 
 func wsURL(srv *httptest.Server, canonicalJoinCode, name string) string {
 	return "ws" + strings.TrimPrefix(srv.URL, "http") +
-		"/g/" + joincode.Format(canonicalJoinCode) + "/ws?name=" + name
+		scribbleBase + "/g/" + joincode.Format(canonicalJoinCode) + "/ws?name=" + name
 }
 
 func dialAs(t *testing.T, srv *httptest.Server, canonicalJoinCode, name string) (*websocket.Conn, *http.Response) {
@@ -302,7 +310,7 @@ func TestCapExceededWithDisconnectedSeat(t *testing.T) {
 
 func TestUnknownCodeReturns404(t *testing.T) {
 	srv, _ := newApp(t)
-	resp, err := http.Get(srv.URL + "/g/Z9Z-Z9Z")
+	resp, err := http.Get(srv.URL + scribbleBase + "/g/Z9Z-Z9Z")
 	if err != nil {
 		t.Fatalf("GET unknown: %v", err)
 	}

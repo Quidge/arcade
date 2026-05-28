@@ -9,8 +9,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/quidge/scribble/internal/gamesession"
-	"github.com/quidge/scribble/internal/roundcomplete"
+	"github.com/quidge/scribble/internal/games/scribble/gamesession"
+	"github.com/quidge/scribble/internal/games/scribble/roundcomplete"
 )
 
 // TestFullGameAtMaxPlayers drives a 10-Player GameSession from Start

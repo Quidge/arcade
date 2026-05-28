@@ -1,0 +1,64 @@
+{{/* Arcade shell layout. Deliberately minimal and NOT shared with
+     any Game — each Game owns its own full HTML (ADR 0015). */}}
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{{.Title}} · Arcade</title>
+	<style>
+		*, *::before, *::after { box-sizing: border-box; }
+		html, body { margin: 0; padding: 0; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+			color: #1c1917;
+			background: #fafaf9;
+			line-height: 1.6;
+			-webkit-font-smoothing: antialiased;
+		}
+		a { color: #0891b2; }
+		.container {
+			max-width: 640px;
+			margin: 0 auto;
+			padding: 0 1.25rem;
+		}
+		main { padding: 3rem 0 4rem; }
+		h1 {
+			font-size: 2.25rem;
+			margin: 0 0 0.5rem;
+			letter-spacing: -0.025em;
+			line-height: 1.2;
+		}
+		.lede {
+			color: #78716c;
+			font-size: 1.1rem;
+			margin: 0 0 2rem;
+		}
+		.game-list {
+			list-style: none;
+			padding: 0;
+			margin: 0;
+		}
+		.game-list li { margin-bottom: 0.75rem; }
+		.game-link {
+			display: block;
+			background: #ffffff;
+			border: 1px solid #e7e5e4;
+			border-radius: 0.6rem;
+			padding: 1.25rem 1.5rem;
+			text-decoration: none;
+			color: #1c1917;
+			font-weight: 600;
+			font-size: 1.15rem;
+		}
+		.game-link:hover { border-color: #0891b2; }
+	</style>
+</head>
+<body>
+	<main>
+		<div class="container">
+			{{block "content" .}}{{end}}
+		</div>
+	</main>
+</body>
+</html>

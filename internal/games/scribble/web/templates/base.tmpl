@@ -111,11 +111,18 @@
 	</style>
 </head>
 <body>
+	{{/* BASE_PATH is the Game's URL slug, exposed to client-side JS
+	     so the lobby WebSocket URL and the home join-by-code probe
+	     resolve under the slug. */}}
+	<script>window.BASE_PATH = "{{.BasePath}}";</script>
 	<header class="site-header">
 		<div class="container">
-			<a href="/" class="site-name">scribble</a>
+			<a href="{{.BasePath}}/" class="site-name">scribble</a>
 			<nav class="site-nav">
-				<a href="/">Home</a>
+				<a href="{{.BasePath}}/">Home</a>
+				{{/* The Game places its own back-to-Arcade link; there
+				     is no inherited Arcade chrome (ADR 0015). */}}
+				<a href="/">Arcade</a>
 			</nav>
 		</div>
 	</header>

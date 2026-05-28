@@ -24,16 +24,16 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/quidge/scribble/internal/chain"
-	"github.com/quidge/scribble/internal/draft"
-	"github.com/quidge/scribble/internal/gamesession"
-	"github.com/quidge/scribble/internal/ghost"
+	"github.com/quidge/scribble/internal/games/scribble/chain"
+	"github.com/quidge/scribble/internal/games/scribble/draft"
+	"github.com/quidge/scribble/internal/games/scribble/gamesession"
+	"github.com/quidge/scribble/internal/games/scribble/ghost"
+	"github.com/quidge/scribble/internal/games/scribble/presence"
+	"github.com/quidge/scribble/internal/games/scribble/round"
+	"github.com/quidge/scribble/internal/games/scribble/roundcomplete"
+	"github.com/quidge/scribble/internal/games/scribble/seatconn"
+	"github.com/quidge/scribble/internal/games/scribble/strokes"
 	"github.com/quidge/scribble/internal/joincode"
-	"github.com/quidge/scribble/internal/presence"
-	"github.com/quidge/scribble/internal/round"
-	"github.com/quidge/scribble/internal/roundcomplete"
-	"github.com/quidge/scribble/internal/seatconn"
-	"github.com/quidge/scribble/internal/strokes"
 )
 
 const (
@@ -209,6 +209,14 @@ type Server struct {
 	// Sourced from the binary's build-time ldflags; used by the
 	// base template's footer. Treated as opaque text.
 	gitSHA string
+
+	// basePath is the URL slug this Game is mounted under (e.g.
+	// "/scribble"), owned by main.go and supplied at construction.
+	// It prefixes every registered route and every absolute URL the
+	// server emits (the create-redirect) or threads into templates
+	// (WebSocket URL, join-code probe, home/back links). No trailing
+	// slash; "" mounts Scribble at the root.
+	basePath string
 }
 
 // roomState bundles the per-GameSession runtime state the web
@@ -287,9 +295,12 @@ type templates struct {
 	nf    *template.Template
 }
 
-// New constructs a Server. The caller may share registry across
-// instances if multiple muxes are in play.
-func New(registry *gamesession.Registry, gitSHA string) *Server {
+// New constructs a Server mounted under basePath (the Game's URL
+// slug, e.g. "/scribble"; "" mounts at the root). main.go owns the
+// slug and supplies it; the server uses it for both route
+// registration and absolute-URL generation. The caller may share
+// registry across instances if multiple muxes are in play.
+func New(registry *gamesession.Registry, gitSHA, basePath string) *Server {
 	t := &templates{
 		home:  parseTmpl("templates/pages/home.tmpl"),
 		lobby: parseTmpl("templates/pages/lobby.tmpl"),
@@ -301,6 +312,7 @@ func New(registry *gamesession.Registry, gitSHA string) *Server {
 		seats:    seatconn.New(),
 		tmpl:     t,
 		gitSHA:   gitSHA,
+		basePath: basePath,
 	}
 }
 
@@ -311,20 +323,40 @@ func parseTmpl(page string) *template.Template {
 	))
 }
 
-// Routes registers the slice's routes on mux. Existing routes on
-// mux are left alone; the caller is expected to also register the
-// home and /healthz handlers.
+// Routes registers the Game's routes on mux, each prefixed with the
+// configured base path. Existing routes on mux are left alone; the
+// caller is expected to also register the Arcade shell and the
+// /healthz handler.
+//
+// The lobby route is registered as a plain GET so Go's net/http
+// dispatches HEAD requests to the same handler — the join-by-code
+// probe depends on that (per ADR 0014); do not add a method guard.
+//
+// Go's ServeMux does not auto-redirect a bare slug ("/scribble") to
+// its trailing-slash home ("/scribble/"), which is the only form the
+// {base}/{$} pattern matches, so we register an explicit redirect
+// for the bare slug.
 func (s *Server) Routes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /{$}", s.handleHome)
-	mux.HandleFunc("POST /g", s.handleCreate)
-	mux.HandleFunc("GET /g/{rawJoinCode}", s.handleLobby)
-	mux.HandleFunc("GET /g/{rawJoinCode}/ws", s.handleWS)
+	b := s.basePath
+	mux.HandleFunc("GET "+b+"/{$}", s.handleHome)
+	mux.HandleFunc("POST "+b+"/g", s.handleCreate)
+	mux.HandleFunc("GET "+b+"/g/{rawJoinCode}", s.handleLobby)
+	mux.HandleFunc("GET "+b+"/g/{rawJoinCode}/ws", s.handleWS)
+	if b != "" {
+		mux.HandleFunc("GET "+b, func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, b+"/", http.StatusMovedPermanently)
+		})
+	}
 }
 
 type baseData struct {
 	Title  string
 	Year   int
 	GitSHA string
+	// BasePath is the Game's URL slug (e.g. "/scribble"), threaded
+	// into every template so server-rendered links and the injected
+	// client-side BASE_PATH resolve under the slug.
+	BasePath string
 }
 
 type homeData struct {
@@ -351,7 +383,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	// subscribers are joined are still consumed (and broadcast into
 	// the void), which keeps the channel non-stalled.
 	s.ensureRoom(g)
-	http.Redirect(w, r, "/g/"+joincode.Format(g.Code()), http.StatusSeeOther)
+	http.Redirect(w, r, s.basePath+"/g/"+joincode.Format(g.Code()), http.StatusSeeOther)
 }
 
 // handleLobby renders the lobby page. Registered as a GET route; Go
@@ -1194,9 +1226,10 @@ func writeRoster(conn *websocket.Conn, players []gamesession.Player) error {
 
 func (s *Server) baseData(title string) baseData {
 	return baseData{
-		Title:  title,
-		Year:   time.Now().Year(),
-		GitSHA: s.gitSHA,
+		Title:    title,
+		Year:     time.Now().Year(),
+		GitSHA:   s.gitSHA,
+		BasePath: s.basePath,
 	}
 }
 

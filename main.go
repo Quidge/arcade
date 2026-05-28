@@ -9,9 +9,16 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/quidge/scribble/internal/gamesession"
-	"github.com/quidge/scribble/internal/web"
+	"github.com/quidge/scribble/internal/arcade"
+	"github.com/quidge/scribble/internal/games/scribble/gamesession"
+	scribbleweb "github.com/quidge/scribble/internal/games/scribble/web"
 )
+
+// scribbleBasePath is the URL slug Scribble is mounted under. main.go
+// owns the Arcade's namespace (ADR 0015): it assigns each Game its
+// slug and passes it into the Game's constructor, which uses the slug
+// for both route registration and absolute-URL generation.
+const scribbleBasePath = "/scribble"
 
 const (
 	defaultAddr       = ":8080"
@@ -82,10 +89,15 @@ func main() {
 		graceDuration = time.Duration(secs) * time.Second
 	}
 	registry := gamesession.NewRegistry(gamesession.WithHostGraceDuration(graceDuration))
-	srvWeb := web.New(registry, gitSHA)
+	// Construct each Game with its slug, then the Arcade shell that
+	// owns the root picker. Register the Arcade at "/" and Scribble
+	// under its slug; /healthz stays unprefixed (infra knob).
+	scribbleGame := scribbleweb.New(registry, gitSHA, scribbleBasePath)
+	arcadeShell := arcade.New()
 
 	mux := http.NewServeMux()
-	srvWeb.Routes(mux)
+	arcadeShell.Routes(mux)
+	scribbleGame.Routes(mux)
 	mux.HandleFunc("GET /healthz", healthHandler)
 
 	// Read/Write timeouts are intentionally omitted: applying them to

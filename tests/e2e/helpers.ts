@@ -21,10 +21,15 @@ export type ThreePlayerLobby = {
 export async function createSession(browser: Browser): Promise<{ context: BrowserContext; page: Page; lobbyURL: string }> {
   const context = await browser.newContext();
   const page = await context.newPage();
+  // Go through the Arcade picker: land on the root, click Scribble to
+  // reach /scribble/, then host. This exercises the real navigation
+  // path (picker → Game) on every run (ADR 0015).
   await page.goto('/');
+  await page.getByRole('link', { name: 'Scribble' }).click();
+  await expect(page).toHaveURL(/\/scribble\/$/);
   await page.getByRole('button', { name: 'Host a new game' }).click();
-  // Matches the URL shape of a join-code path — a superset of joincode.Alphabet.
-  await expect(page).toHaveURL(/\/g\/[0-9A-Z]{3}-[0-9A-Z]{3}$/);
+  // Matches the slugged join-code path — a superset of joincode.Alphabet.
+  await expect(page).toHaveURL(/\/scribble\/g\/[0-9A-Z]{3}-[0-9A-Z]{3}$/);
   return { context, page, lobbyURL: page.url() };
 }
 

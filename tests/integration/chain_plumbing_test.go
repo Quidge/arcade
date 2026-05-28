@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quidge/scribble/internal/chain"
-	"github.com/quidge/scribble/internal/gamesession"
-	"github.com/quidge/scribble/internal/web"
+	"github.com/quidge/scribble/internal/arcade"
+	"github.com/quidge/scribble/internal/games/scribble/chain"
+	"github.com/quidge/scribble/internal/games/scribble/gamesession"
+	"github.com/quidge/scribble/internal/games/scribble/web"
 )
 
 // newAppWithServer mirrors newApp but also returns the *web.Server
@@ -19,8 +20,9 @@ import (
 func newAppWithServer(t *testing.T) (*httptest.Server, *gamesession.Registry, *web.Server) {
 	t.Helper()
 	reg := gamesession.NewRegistry()
-	srvWeb := web.New(reg, "test")
+	srvWeb := web.New(reg, "test", scribbleBase)
 	mux := http.NewServeMux()
+	arcade.New().Routes(mux)
 	srvWeb.Routes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

@@ -10,7 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/quidge/scribble/internal/gamesession"
+	"github.com/quidge/scribble/internal/games/scribble/gamesession"
 )
 
 // revealEntryWire mirrors one Entry in a reveal-state's

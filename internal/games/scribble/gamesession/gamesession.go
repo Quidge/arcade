@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/quidge/scribble/internal/hostpromote"
+	"github.com/quidge/scribble/internal/games/scribble/hostpromote"
 	"github.com/quidge/scribble/internal/joincode"
 )
 

@@ -418,7 +418,7 @@
 <section id="ended-panel" class="lobby-panel ended-panel hidden">
 	<h2>Thanks for playing!</h2>
 	<p>The host ended the game.</p>
-	<p><a href="/">Back to home</a></p>
+	<p><a href="{{.BasePath}}/">Back to home</a></p>
 </section>
 
 <section id="host-end-game-panel" class="hidden">
@@ -439,6 +439,11 @@
 <script>
 (function () {
 	const code = "{{.Code}}";
+	// basePath is the Game's URL slug, injected by the base layout so
+	// the lobby WebSocket URL resolves under the slug (e.g.
+	// /scribble/g/<code>/ws). The share link derives from
+	// location.pathname and is already slug-correct.
+	const basePath = window.BASE_PATH || "";
 
 	const namePanel = document.getElementById("name-panel");
 	const nameForm = document.getElementById("name-form");
@@ -1005,7 +1010,7 @@
 		nameSubmit.disabled = true;
 
 		const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-		const url = proto + "//" + window.location.host + "/g/" + code + "/ws?name=" + encodeURIComponent(name);
+		const url = proto + "//" + window.location.host + basePath + "/g/" + code + "/ws?name=" + encodeURIComponent(name);
 		try {
 			ws = new WebSocket(url);
 		} catch (err) {
