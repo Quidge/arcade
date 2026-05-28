@@ -26,10 +26,10 @@
 package roundcomplete
 
 import (
-	"github.com/quidge/scribble/internal/chain"
-	"github.com/quidge/scribble/internal/draft"
-	"github.com/quidge/scribble/internal/ghost"
-	"github.com/quidge/scribble/internal/strokes"
+	"github.com/quidge/arcade/internal/games/scribble/chain"
+	"github.com/quidge/arcade/internal/games/scribble/draft"
+	"github.com/quidge/arcade/internal/games/scribble/ghost"
+	"github.com/quidge/arcade/internal/games/scribble/strokes"
 )
 
 // ContentKindForRound maps a Round number to the content kind

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/quidge/scribble/internal/joincode"
+	"github.com/quidge/arcade/internal/joincode"
 )
 
 // Behaviors moved here from e2e per ADR 0013: rendered-HTML
@@ -23,7 +23,7 @@ func TestLobbyHTMLContainsShareLinkScaffold(t *testing.T) {
 	srv, _ := newApp(t)
 	code := createSession(t, srv)
 
-	resp, err := http.Get(srv.URL + "/g/" + joincode.Format(code))
+	resp, err := http.Get(srv.URL + scribbleBase + "/g/" + joincode.Format(code))
 	if err != nil {
 		t.Fatalf("GET /g/%s: %v", code, err)
 	}
@@ -53,12 +53,62 @@ func TestLobbyHTMLContainsShareLinkScaffold(t *testing.T) {
 	}
 }
 
-func TestHomeHTMLContainsHostFormAndJoinForm(t *testing.T) {
+// TestArcadeRootServesPicker asserts the Arcade shell owns "/" as a
+// game-picker that links to Scribble at its slug. This is the
+// integration guard for the picker → Scribble navigation the e2e
+// journey rides on (ADR 0015).
+func TestArcadeRootServesPicker(t *testing.T) {
 	srv, _ := newApp(t)
 
 	resp, err := http.Get(srv.URL + "/")
 	if err != nil {
 		t.Fatalf("GET /: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET / status = %d want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	html := string(body)
+	if !strings.Contains(html, `href="`+scribbleBase+`/"`) {
+		t.Errorf("Arcade picker missing link to %s/", scribbleBase)
+	}
+	if !strings.Contains(html, "Scribble") {
+		t.Errorf("Arcade picker missing accessible name 'Scribble'")
+	}
+}
+
+// TestBareSlugRedirectsToHome asserts the bare Game slug ("/scribble")
+// permanently redirects to its trailing-slash home ("/scribble/") —
+// the form the {base}/{$} route matches. Go's ServeMux does not do
+// this redirect for us (per the web package's Routes comment).
+func TestBareSlugRedirectsToHome(t *testing.T) {
+	srv, _ := newApp(t)
+
+	resp, err := httpClient().Get(srv.URL + scribbleBase)
+	if err != nil {
+		t.Fatalf("GET %s: %v", scribbleBase, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMovedPermanently {
+		t.Fatalf("GET %s status = %d want 301", scribbleBase, resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != scribbleBase+"/" {
+		t.Errorf("Location = %q want %q", loc, scribbleBase+"/")
+	}
+}
+
+func TestHomeHTMLContainsHostFormAndJoinForm(t *testing.T) {
+	srv, _ := newApp(t)
+
+	// Scribble's home now lives under its slug; "/" is the Arcade
+	// picker (see TestArcadeRootServesPicker).
+	resp, err := http.Get(srv.URL + scribbleBase + "/")
+	if err != nil {
+		t.Fatalf("GET %s/: %v", scribbleBase, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -70,9 +120,9 @@ func TestHomeHTMLContainsHostFormAndJoinForm(t *testing.T) {
 	}
 	html := string(body)
 
-	// Host form: existing POST /g remains the create path.
-	if !strings.Contains(html, `action="/g"`) || !strings.Contains(html, `method="POST"`) {
-		t.Errorf("rendered home missing POST /g host form")
+	// Host form: the create path is the slugged POST {base}/g.
+	if !strings.Contains(html, `action="`+scribbleBase+`/g"`) || !strings.Contains(html, `method="POST"`) {
+		t.Errorf("rendered home missing POST %s/g host form", scribbleBase)
 	}
 	if !strings.Contains(html, "Host a new game") {
 		t.Errorf("rendered home missing 'Host a new game' button label")
@@ -101,7 +151,7 @@ func TestLobbyHEADReturns200ForExistingCode(t *testing.T) {
 	srv, _ := newApp(t)
 	code := createSession(t, srv)
 
-	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/"+joincode.Format(code), nil)
+	req, err := http.NewRequest(http.MethodHead, srv.URL+scribbleBase+"/g/"+joincode.Format(code), nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -125,7 +175,7 @@ func TestLobbyHEADReturns200ForExistingCode(t *testing.T) {
 func TestLobbyHEADReturns404ForUnknownCode(t *testing.T) {
 	srv, _ := newApp(t)
 
-	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/Z9Z-Z9Z", nil)
+	req, err := http.NewRequest(http.MethodHead, srv.URL+scribbleBase+"/g/Z9Z-Z9Z", nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -142,7 +192,7 @@ func TestLobbyHEADReturns404ForUnknownCode(t *testing.T) {
 func TestLobbyHEADReturns404ForMalformedCode(t *testing.T) {
 	srv, _ := newApp(t)
 
-	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/not-a-code", nil)
+	req, err := http.NewRequest(http.MethodHead, srv.URL+scribbleBase+"/g/not-a-code", nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -165,7 +215,7 @@ func TestLobbyHEADReturns404ForMalformedCode(t *testing.T) {
 func TestLobbyHEADReturns404ForOffAlphabetCode(t *testing.T) {
 	srv, _ := newApp(t)
 
-	req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/XILOU0", nil)
+	req, err := http.NewRequest(http.MethodHead, srv.URL+scribbleBase+"/g/XILOU0", nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -189,7 +239,7 @@ func TestLobbyHEADIsCaseAndDashTolerant(t *testing.T) {
 		code, // canonical, no dash
 	}
 	for _, v := range variants {
-		req, err := http.NewRequest(http.MethodHead, srv.URL+"/g/"+v, nil)
+		req, err := http.NewRequest(http.MethodHead, srv.URL+scribbleBase+"/g/"+v, nil)
 		if err != nil {
 			t.Fatalf("NewRequest %q: %v", v, err)
 		}
@@ -214,7 +264,7 @@ func TestLobbyHTMLAcceptsLowercaseCode(t *testing.T) {
 
 	formatted := joincode.Format(code)
 	lower := strings.ToLower(formatted)
-	resp, err := http.Get(srv.URL + "/g/" + lower)
+	resp, err := http.Get(srv.URL + scribbleBase + "/g/" + lower)
 	if err != nil {
 		t.Fatalf("GET lowercase: %v", err)
 	}

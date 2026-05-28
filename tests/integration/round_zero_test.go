@@ -10,7 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/quidge/scribble/internal/gamesession"
+	"github.com/quidge/arcade/internal/games/scribble/gamesession"
 )
 
 // roundStateMsg mirrors the server → client envelope for the

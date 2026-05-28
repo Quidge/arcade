@@ -3,7 +3,7 @@
 # requires-python = ">=3.13"
 # dependencies = ["click"]
 # ///
-"""Upload a file to the quidge/scribble asset-dump release (to embed in Issues or PRs)."""
+"""Upload a file to the quidge/arcade asset-dump release (to embed in Issues or PRs)."""
 
 import shutil
 import subprocess
@@ -32,8 +32,8 @@ class GitHubRepo:
         )
 
 
-# Fixed target: this script only supports the dedicated release on quidge/scribble.
-REPO = GitHubRepo(owner="quidge", name="scribble")
+# Fixed target: this script only supports the dedicated release on quidge/arcade.
+REPO = GitHubRepo(owner="quidge", name="arcade")
 RELEASE_TAG = "asset-dump"
 
 
@@ -56,7 +56,7 @@ def main(path: Path) -> None:
     Example:
     \b
       $ .claude/skills/gh-image/upload-asset.py /tmp/a-screenshot.png
-      https://github.com/quidge/scribble/releases/download/asset-dump/a-screenshot+<uuid>.png
+      https://github.com/quidge/arcade/releases/download/asset-dump/a-screenshot+<uuid>.png
 
     Paste the printed URL into an Issue or PR comment.
     """

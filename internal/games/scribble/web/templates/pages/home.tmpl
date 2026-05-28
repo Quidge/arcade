@@ -72,7 +72,7 @@
 
 <section class="home-section" aria-labelledby="host-heading">
 	<h2 id="host-heading">Host a game</h2>
-	<form action="/g" method="POST">
+	<form action="{{.BasePath}}/g" method="POST">
 		<button type="submit" class="btn">Host a new game</button>
 	</form>
 	<p style="margin-top: 1rem; color: var(--muted); font-size: 0.95rem;">
@@ -86,6 +86,9 @@
 	var input = document.getElementById('join-code');
 	var btn = document.getElementById('join-btn');
 	var err = document.getElementById('join-error');
+	// basePath is the Game's URL slug, injected by the base layout so
+	// the probe + redirect resolve under the slug (e.g. /scribble/g/…).
+	var basePath = window.BASE_PATH || '';
 	// Alphabet mirrors internal/joincode.Alphabet (no I, L, O, U) — see that package's doc.
 	var alphabet = /^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{6}$/;
 
@@ -114,13 +117,13 @@
 		var code = canonical(input.value);
 		if (!shapeOK(input.value)) return;
 		btn.disabled = true;
-		fetch('/g/' + encodeURIComponent(code), { method: 'HEAD' })
+		fetch(basePath + '/g/' + encodeURIComponent(code), { method: 'HEAD' })
 			.then(function (resp) {
 				if (resp.ok) {
 					// Use the dashed form to match the host-create
 					// redirect target so URL bars don't differ
 					// depending on entry path.
-					window.location = '/g/' + code.slice(0, 3) + '-' + code.slice(3);
+					window.location = basePath + '/g/' + code.slice(0, 3) + '-' + code.slice(3);
 					return;
 				}
 				if (resp.status === 404) {

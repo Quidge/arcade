@@ -12,7 +12,7 @@ permissions:
   packages: write
 
 env:
-  BUILT_IMAGE_NAME: ghcr.io/quidge/scribble
+  BUILT_IMAGE_NAME: ghcr.io/quidge/arcade
 
 jobs:
   build:
@@ -41,7 +41,7 @@ jobs:
           context: .
           platforms: linux/amd64
           load: true
-          tags: scribble:smoke
+          tags: arcade:smoke
           build-args: |
             GIT_SHA=${{ steps.meta.outputs.git_sha }}
             BUILT_AT=${{ steps.meta.outputs.built_at }}
@@ -57,8 +57,8 @@ jobs:
           GIT_SHA: ${{ steps.meta.outputs.git_sha }}
         run: |
           set -euo pipefail
-          docker run --detach --publish 8080:8080 --name scribble-smoke scribble:smoke
-          trap 'docker logs scribble-smoke || true; docker rm --force scribble-smoke || true' EXIT
+          docker run --detach --publish 8080:8080 --name arcade-smoke arcade:smoke
+          trap 'docker logs arcade-smoke || true; docker rm --force arcade-smoke || true' EXIT
 
           ok=false
           for i in $(seq 1 30); do

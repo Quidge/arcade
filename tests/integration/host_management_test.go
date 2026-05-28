@@ -13,8 +13,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/quidge/scribble/internal/gamesession"
-	"github.com/quidge/scribble/internal/web"
+	"github.com/quidge/arcade/internal/arcade"
+	"github.com/quidge/arcade/internal/games/scribble/gamesession"
+	"github.com/quidge/arcade/internal/games/scribble/web"
 )
 
 // newAppWithGrace is like newApp but lets the test inject a short
@@ -23,8 +24,9 @@ import (
 func newAppWithGrace(t *testing.T, grace time.Duration) (*httptest.Server, *gamesession.Registry) {
 	t.Helper()
 	reg := gamesession.NewRegistry(gamesession.WithHostGraceDuration(grace))
-	srvWeb := web.New(reg, "test")
+	srvWeb := web.New(reg, "test", scribbleBase)
 	mux := http.NewServeMux()
+	arcade.New(scribbleMount).Routes(mux)
 	srvWeb.Routes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

@@ -23,7 +23,7 @@ uv run .claude/skills/gh-image/upload-asset.py /absolute/or/relative/path/to/ima
 Example:
 ```sh
 $ uv run .claude/skills/gh-image/upload-asset.py /absolute/or/relative/path/to/the_image_name.png
-https://github.com/quidge/scribble/releases/download/asset-dump/the_image_name+<uuid>.png
+https://github.com/quidge/arcade/releases/download/asset-dump/the_image_name+<uuid>.png
 ```
 
 The generated UUID suffix is required because two release assets cannot share the same name.
@@ -33,7 +33,7 @@ The generated UUID suffix is required because two release assets cannot share th
 If you're embedding this in GH flavored markdown, you can use a snippet like this with the uploaded asset url:
 
 ```md
-![alt-text-for-screenshot](https://github.com/quidge/scribble/releases/download/asset-dump/<filename>+<uuid>.png)
+![alt-text-for-screenshot](https://github.com/quidge/arcade/releases/download/asset-dump/<filename>+<uuid>.png)
 ```
 
 Use an alt text that describes what the image proves.

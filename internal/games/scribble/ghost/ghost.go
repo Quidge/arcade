@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/quidge/scribble/internal/strokes"
+	"github.com/quidge/arcade/internal/games/scribble/strokes"
 )
 
 // SlotKind discriminates the Entry shape a Ghost is being asked

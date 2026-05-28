@@ -1,4 +1,4 @@
-module github.com/quidge/scribble
+module github.com/quidge/arcade
 
 go 1.26
 

@@ -1,0 +1,7 @@
+{{define "content"}}
+<h1>Arcade</h1>
+<p class="lede">Pick a game to play.</p>
+<ul class="game-list">
+	{{range .Games}}<li><a class="game-link" href="{{.Slug}}/">{{.Title}}</a></li>
+	{{end}}</ul>
+{{end}}

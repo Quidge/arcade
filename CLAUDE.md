@@ -1,4 +1,6 @@
-# Scribble
+# Arcade
+
+The repo is an Arcade hosting multiple Games; Scribble is the first, mounted at `/scribble`. See ADR 0015 and `CONTEXT-MAP.md`.
 
 ## Common dev commands
 - `just web` to start the dev server; this command starts on a port dedicated to your branch or worktree, which will avoid collisions with other users developing on the same system.
@@ -12,7 +14,7 @@ Run `just` (no arguments) to see other commands if needed.
 
 ### Issue tracker
 
-Issues live on GitHub at `Quidge/scribble`, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live on GitHub at `Quidge/arcade`, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -20,7 +22,7 @@ Canonical defaults (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 ### Domain docs
 
-Single-context — `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Multi-context — distributed glossaries (root `CONTEXT.md` for Arcade-wide terms, one per Game e.g. `internal/games/scribble/CONTEXT.md`), indexed by `CONTEXT-MAP.md`; centralized `docs/adr/` with one global number sequence. See `docs/agents/domain.md`.
 
 ### Dependency policy
 

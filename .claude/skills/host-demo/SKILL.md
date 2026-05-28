@@ -51,9 +51,10 @@ demo exercises real viewport sizes.
 
 - Confirm the working directory is the scribble repo (it has a `justfile` and
   `CLAUDE.md` describing scribble).
-- Read `CONTEXT.md` at the repo root — the canonical glossary of how scribble
-  works today (GameSession, Chain, Round, Reveal, Caption, Ghost, Draft). It is
-  the single source of truth for game behaviour; this skill never restates it.
+- Read `internal/games/scribble/CONTEXT.md` — the canonical glossary of how
+  scribble works today (GameSession, Chain, Round, Reveal, Caption, Ghost,
+  Draft). It is the single source of truth for game behaviour; this skill never
+  restates it. (The root `CONTEXT.md` holds only Arcade-wide terms.)
 - Skim open bugs so known issues can be told apart from fresh findings:
   `gh issue list --label bug`.
 - Confirm `qrencode` is installed: `which qrencode`. If missing, install it
@@ -66,10 +67,10 @@ demo exercises real viewport sizes.
 just web        # run in the background — it stays up for the whole session
 ```
 
-Find the port it bound (the scribble process, not other listeners):
+Find the port it bound (the arcade process, not other listeners):
 
 ```bash
-lsof -nP -iTCP -sTCP:LISTEN | grep -i scribble
+lsof -nP -iTCP -sTCP:LISTEN | grep -i arcade
 ```
 
 Find the machine's LAN IP (try `en0` then `en1`):
@@ -126,8 +127,9 @@ to report what their screen says.
 
 ### 6. Play the rounds
 
-`CONTEXT.md` (read in step 1) defines the Round structure, Ghost fills, and the
-Reveal driver model — work from it, not from memory.
+`internal/games/scribble/CONTEXT.md` (read in step 1) defines the Round
+structure, Ghost fills, and the Reveal driver model — work from it, not from
+memory.
 
 Each round, for every simulated player: select their page, read the prompt,
 submit something **in character**, then move on. The human plays their own
@@ -158,7 +160,7 @@ any later step.
 
 ### 8. Drive the reveal
 
-Drive the reveal per the Reveal model in `CONTEXT.md`: each chain is paced by
+Drive the reveal per the Reveal model in `internal/games/scribble/CONTEXT.md`: each chain is paced by
 its starter, and the host paces a chain whose starter is absent. To advance a
 chain, switch to the driving player's page and click `Next` there; other pages
 show "Watching". Walk each chain from the correct page, screenshot the chains,
@@ -178,5 +180,5 @@ the exercise; report them plainly.
 
 - `scripts/draw_on_canvas.js` — pointer-event drawing helper for drawing rounds.
 
-For game mechanics, read `CONTEXT.md` at the repo root (see step 1) — this skill
-deliberately keeps no copy of it.
+For game mechanics, read `internal/games/scribble/CONTEXT.md` (see step 1) —
+this skill deliberately keeps no copy of it.
